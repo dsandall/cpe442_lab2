@@ -12,16 +12,15 @@ use opencv::{
     videoio, Result,
 };
 
+
+use std::time::Instant;
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: {} <video_file_path>", args[0]);
         return Ok(());
     }
-
-    // // Initialize PAPI
-    // papi_bindings::initialize(false).unwrap();
-    // // papi_bindings::events_set::EventsSet::new(counters);
 
     // Open the video file (pass the path to the video file as an argument)
     let mut video = videoio::VideoCapture::from_file(&args[1], videoio::CAP_ANY)?;
@@ -32,6 +31,11 @@ fn main() -> Result<()> {
     // Create a window to display frames
     highgui::named_window("Video Frame", WINDOW_AUTOSIZE)?;
     highgui::named_window("Video Frame2", WINDOW_AUTOSIZE)?;
+
+    // Variables to accumulate time and count frames
+    let mut total_gray_time = std::time::Duration::new(0, 0);
+    let mut total_sobel_time = std::time::Duration::new(0, 0);
+    let mut frame_count = 0;
 
     loop {
         // Read the next frame
@@ -45,12 +49,20 @@ fn main() -> Result<()> {
             break;
         }
 
-        // Convert the frame to grayscale
+        // Start timing for grayscale conversion
+        let start_gray = Instant::now();
         let intermediary = to442_grayscale(&mut frame)?;
-        // let grayyy = convert_u16_to_8bit(&intermediary)?; //used for directly viewing the grayscale image, as CV_16UC1 cannot be directly viewed
+        let gray_duration = start_gray.elapsed();
+        total_gray_time += gray_duration;
 
-        // Sobel Filter on grayscale output
-        let frame_sobel = to442_sobel(&intermediary).unwrap();
+        // Start timing for Sobel filter
+        let start_sobel = Instant::now();
+        let frame_sobel = to442_sobel(&intermediary)?;
+        let sobel_duration = start_sobel.elapsed();
+        total_sobel_time += sobel_duration;
+
+        // Increment frame count
+        frame_count += 1;
 
         // Display the frames in the windows
         highgui::imshow("Video Frame", &frame_sobel)?;
@@ -61,6 +73,16 @@ fn main() -> Result<()> {
             // Exit if the 'ESC' key is pressed
             println!("ESC key pressed. Exiting...");
             break;
+        }
+
+        // Every 50 frames, calculate and print averages
+        if frame_count % 50 == 0 {
+            let avg_gray_time = total_gray_time / frame_count;
+            let avg_sobel_time = total_sobel_time / frame_count;
+            println!(
+                "Averages after {} frames: Grayscale: {:?}, Sobel: {:?}",
+                frame_count, avg_gray_time, avg_sobel_time
+            );
         }
     }
 
