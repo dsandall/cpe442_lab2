@@ -80,7 +80,7 @@ fn main() -> Result<()> {
 
 fn do_frame(frame: &Mat) -> Result<Mat> {
     // Calculate the height for each smaller matrix
-    let split_height = frame.rows() / NUM_THREADS;
+    let split_height = frame.rows() / NUM_THREADS as i32;
 
     // Create the smaller matrices with the specified overlaps
     let mat1 = Mat::roi(frame, Rect::new(0, 0, frame.cols(), split_height + 1))?;
