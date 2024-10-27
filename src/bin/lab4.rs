@@ -1,7 +1,7 @@
 use std::env;
 use rayon::prelude::*;
 use opencv::{
-    boxed_ref::BoxedRef, core::{Mat, Rect, ToInputArray, CV_16UC1, CV_8UC1}, highgui::{self, WINDOW_AUTOSIZE}, mod_prelude_sys::OpenCVTypeExternContainer, prelude::*, videoio, Result
+    boxed_ref::BoxedRef, core::{Mat, Rect, CV_8UC1}, highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio, Result
 };
 use std::time::Instant;
 
@@ -80,7 +80,7 @@ fn main() -> Result<()> {
 
 fn do_frame(frame: &Mat) -> Result<Mat> {
     // Calculate the height for each smaller matrix
-    let split_height = frame.rows() / 4;
+    let split_height = frame.rows() / NUM_THREADS;
 
     // Create the smaller matrices with the specified overlaps
     let mat1 = Mat::roi(frame, Rect::new(0, 0, frame.cols(), split_height + 1))?;
