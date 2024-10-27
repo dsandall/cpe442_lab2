@@ -1,19 +1,11 @@
-///////////////////////////////////
-/// CPE442 with Andrew Danowitz: Lab 3 Sobel Filter 
-/// Dylan Sandall
-///////////////////////////////////
-
 use std::env;
-use rayon::{prelude::*, range};
-
+use rayon::prelude::*;
 use opencv::{
-    core::{Mat, CV_16UC1, CV_8UC1},
-    highgui::{self, WINDOW_AUTOSIZE},
-    prelude::*,
-    videoio, Result,
+    boxed_ref::BoxedRef, core::{Mat, Rect, ToInputArray, CV_16UC1, CV_8UC1}, highgui::{self, WINDOW_AUTOSIZE}, mod_prelude_sys::OpenCVTypeExternContainer, prelude::*, videoio, Result
 };
-
 use std::time::Instant;
+
+const NUM_THREADS: usize = 4;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -22,7 +14,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Open the video file (pass the path to the video file as an argument)
+    // Open the video file
     let mut video = videoio::VideoCapture::from_file(&args[1], videoio::CAP_ANY)?;
     if !video.is_opened()? {
         panic!("Error: Couldn't open video file.");
@@ -32,7 +24,6 @@ fn main() -> Result<()> {
     highgui::named_window("Video Frame", WINDOW_AUTOSIZE)?;
     highgui::named_window("Video Frame2", WINDOW_AUTOSIZE)?;
 
-    // Variables to accumulate time and count frames
     let mut total_gray_time = std::time::Duration::new(0, 0);
     let mut total_sobel_time = std::time::Duration::new(0, 0);
     let mut frame_count = 0;
@@ -40,7 +31,6 @@ fn main() -> Result<()> {
     loop {
         // Read the next frame
         let mut frame = Mat::default();
-
         if !video.read(&mut frame)? {
             println!("Video processing finished.");
             break;
@@ -49,26 +39,27 @@ fn main() -> Result<()> {
             break;
         }
 
-        // Start timing for grayscale conversion
-        let start_gray = Instant::now();
-        let intermediary = to442_grayscale(&mut frame)?;
-        let gray_duration = start_gray.elapsed();
-        total_gray_time += gray_duration;
 
         // Start timing for Sobel filter
         let start_sobel = Instant::now();
-        let frame_sobel = to442_sobel(&intermediary)?;
+
+        // Do the actual frame stuff
+        let combined_frame = do_frame(&frame)?;
+
+        // Handle timing tracking
         let sobel_duration = start_sobel.elapsed();
         total_sobel_time += sobel_duration;
-
-        // Increment frame count
         frame_count += 1;
 
-        // Display the frames in the windows
-        highgui::imshow("Video Frame", &frame_sobel)?;
+        
+        // (Optional) Save or display the combined frame
+        // opencv::imgcodecs::imwrite("./YAHOO.jpg", &combined_frame, &opencv::core::Vector::from_slice(&[0]))?;
+
+        // // Display the frames in the windows
+        highgui::imshow("Video Frame", &combined_frame)?;
         highgui::imshow("Video Frame2", &frame)?;
 
-        // Wait for 30ms between frames (this sets the frame rate, e.g., ~33 fps)
+        // Wait for 30ms between frames
         if highgui::wait_key(1)? == 27 {
             // Exit if the 'ESC' key is pressed
             println!("ESC key pressed. Exiting...");
@@ -77,11 +68,10 @@ fn main() -> Result<()> {
 
         // Every 50 frames, calculate and print averages
         if frame_count % 50 == 0 {
-            let avg_gray_time = total_gray_time / frame_count;
             let avg_sobel_time = total_sobel_time / frame_count;
             println!(
-                "Averages after {} frames: Grayscale: {:?}, Sobel: {:?}",
-                frame_count, avg_gray_time, avg_sobel_time
+                "Averages after {} frames: Sobel: {:?}",
+                frame_count, avg_sobel_time
             );
         }
     }
@@ -89,36 +79,93 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn do_frame(frame: &Mat) -> Result<Mat> {
+    // Calculate the height for each smaller matrix
+    let split_height = frame.rows() / 4;
+
+    // Create the smaller matrices with the specified overlaps
+    let mat1 = Mat::roi(frame, Rect::new(0, 0, frame.cols(), split_height + 1))?;
+    let mat2 = Mat::roi(frame, Rect::new(0, split_height - 1, frame.cols(), split_height + 2))?;
+    let mat3 = Mat::roi(frame, Rect::new(0, split_height * 2 - 1, frame.cols(), split_height + 2))?;
+    let mat4 = Mat::roi(frame, Rect::new(0, split_height * 3 - 1, frame.cols(), split_height + 1))?;
+
+    //move these to parallel 
+    let mats = vec![mat1, mat2, mat3, mat4];
+    let sobel_results = do_sobel_parallel(&mats)?;
+    //end parallel
+
+    // Trim the results
+    let mat1_trimmed = Mat::roi(&sobel_results[0], Rect::new(1, 1, sobel_results[0].cols() - 2, sobel_results[0].rows() - 2))?;
+    let mat2_trimmed = Mat::roi(&sobel_results[1], Rect::new(1, 1, sobel_results[1].cols() - 2, sobel_results[1].rows() - 2))?;
+    let mat3_trimmed = Mat::roi(&sobel_results[2], Rect::new(1, 1, sobel_results[2].cols() - 2, sobel_results[2].rows() - 2))?;
+    let mat4_trimmed = Mat::roi(&sobel_results[3], Rect::new(1, 1, sobel_results[3].cols() - 2, sobel_results[3].rows() - 1))?;
+
+    // Create a new Mat for the combined result
+    let combined_height = mat1_trimmed.rows() + mat2_trimmed.rows() + mat3_trimmed.rows() + mat4_trimmed.rows(); // Total height
+    let mut combined_frame = unsafe{Mat::new_rows_cols(combined_height, mat1_trimmed.cols(), CV_8UC1)}?; // Create an empty matrix of the appropriate size
+
+    // Copy the data from each matrix into the combined frame
+    let mut current_row = 0;
+
+    for mat in &[mat1_trimmed, mat2_trimmed, mat3_trimmed, mat4_trimmed] {
+        
+        // Create a ROI for the current position in the combined frame
+        let mut roi = Mat::roi_mut(&mut combined_frame, Rect::new(0, current_row, mat.cols(), mat.rows()))?;
+
+        // Copy the data
+        mat.copy_to(&mut roi)?;
+
+        current_row += mat.rows(); // Move to the next position
+    }
+
+    Ok(combined_frame)
+}
 
 
-fn to442_grayscale(frame: &Mat) -> Result<Mat> {
+// Process Sobel in parallel
+fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
+    let results: Vec<Mat> = mats.par_iter().map(|mat| {
+        to442_sobel( &to442_grayscale(mat).unwrap()).unwrap() // Assuming this function also returns a Result<Mat>
+    }).collect();
+
+    Ok(results)
+}
+fn to442_grayscale(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
+    // Extract the underlying Mat from BoxedRefMut
+    // let frame: & Mat = &frame.reference;
+
     // Create an output matrix of type CV_16UC1 for grayscale
-    let mut output: Mat = unsafe { Mat::new_rows_cols(frame.rows(), frame.cols(), CV_16UC1)? };
+    let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_16UC1)? };
 
-    // Get the total size of the image data in bytes (BGR format)
+    // Get the total size of the image data (assuming the input is in BGR format)
     let total_size = (frame.rows() * frame.cols() * 3) as usize;
+
+    // Convert the raw pointer to a mutable slice of `u8`
     let data_slice: &[u8] = unsafe { std::slice::from_raw_parts(frame.data(), total_size) };
 
-    // Create a mutable slice for output and use split_at_mut to enforce disjoint access
-    let output_slice = unsafe {
-        std::slice::from_raw_parts_mut(output.data_mut() as *mut u16, (frame.rows() * frame.cols()) as usize)
-    };
-
-    // Process in parallel over each chunk of 3 bytes
-    output_slice.par_chunks_mut(1).enumerate().for_each(|(i, pixel_out)| {
-        let pixel_in = &data_slice[i * 3..i * 3 + 3];
-        let b = pixel_in[0] as f32;
-        let g = pixel_in[1] as f32;
-        let r = pixel_in[2] as f32;
+    // Use chunks_exact(3) to process the image data in groups of 3 (BGR channels)
+    let mut i = 0;
+    data_slice.chunks_exact(3).for_each(|pixel| {
+        let b = pixel[0] as f32; // Blue channel
+        let g = pixel[1] as f32; // Green channel
+        let r = pixel[2] as f32; // Red channel
 
         // Apply the grayscale formula
         let gray_value = (0.2126 * r + 0.7152 * g + 0.0722 * b) as u16;
-        pixel_out[0] = gray_value;  // Safe to assign directly to output_slice
+
+        // Set the pixel value in the output matrix
+        *output
+            .at_2d_mut::<u16>(i / frame.cols(), i % frame.cols())
+            .unwrap() = gray_value;
+
+        // Optional: Print the grayscale value
+        // println!("Grayscale value at pixel {}: {}", i, gray_value);
+
+        i += 1;
     });
 
     Ok(output)
 }
-
 
 
 fn to442_sobel(frame: &Mat) -> Result<Mat> {
@@ -153,24 +200,6 @@ fn to442_sobel(frame: &Mat) -> Result<Mat> {
             *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
         }
     }
-
-    Ok(output)
-}
-
-fn convert_u16_to_8bit(input: &Mat) -> Result<Mat> {
-    // Create an empty output matrix with the same rows and cols, but type CV_8UC1
-    let mut output = Mat::default();
-
-    // Normalize the u16 matrix to the range [0, 255] and convert it to 8-bit
-    opencv::core::normalize(
-        &input,
-        &mut output,
-        0.0,
-        255.0,
-        opencv::core::NORM_MINMAX,
-        CV_8UC1,
-        &Mat::default(),
-    )?;
 
     Ok(output)
 }

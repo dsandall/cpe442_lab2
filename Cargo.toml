@@ -6,3 +6,27 @@ edition = "2021"
 [dependencies]
 opencv = "0.93.1"
 rayon = "1.10"
+
+
+
+# Define binaries
+[[bin]]
+name = "lab4"
+path = "src/bin/lab4.rs"
+
+
+# Profiles
+[profile.dev]
+opt-level = 0 # No optimization for development
+debug = true   # Include debug information
+
+[profile.release]
+opt-level = 3 # Max optimization for release
+
+
+## You can also set options for specific binaries
+#[profile.dev.binary1]
+#opt-level = 1 # Custom optimization level for binary1 in dev profile
+
+#[profile.release.binary2]
+#opt-level = 2 # Custom optimization level for binary2 in release profile
