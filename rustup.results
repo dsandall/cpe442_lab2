@@ -1,0 +1,5 @@
+info: using existing install for 'nightly-aarch64-unknown-linux-gnu'
+info: default toolchain set to 'nightly-aarch64-unknown-linux-gnu'
+
+  nightly-aarch64-unknown-linux-gnu unchanged - (rustc does not exist)
+

@@ -1,5 +1,5 @@
 [package]
-name = "opencv"
+name = "cpe442_lab2"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,11 +8,14 @@ opencv = "0.93.1"
 rayon = "1.10"
 
 
+[lib]
+name = "my_arm_neon"
+path = "src/my_arm_neon.rs"
 
-# Define binaries
-[[bin]]
-name = "lab4"
-path = "src/bin/lab4.rs"
+## Define binaries
+#[[bin]]
+#name = "lab4"
+#path = "src/bin/lab4.rs"
 
 
 # Profiles

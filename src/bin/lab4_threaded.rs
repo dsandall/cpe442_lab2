@@ -137,6 +137,8 @@ fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
 
     Ok(results)
 }
+
+
 fn to442_grayscale(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
 
     let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };

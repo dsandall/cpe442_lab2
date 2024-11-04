@@ -161,20 +161,20 @@ fn to442_sobel(frame: &Mat) -> Result<Mat> {
     Ok(output)
 }
 
-fn convert_u16_to_8bit(input: &Mat) -> Result<Mat> {
-    // Create an empty output matrix with the same rows and cols, but type CV_8UC1
-    let mut output = Mat::default();
+// fn convert_u16_to_8bit(input: &Mat) -> Result<Mat> {
+//     // Create an empty output matrix with the same rows and cols, but type CV_8UC1
+//     let mut output = Mat::default();
 
-    // Normalize the u16 matrix to the range [0, 255] and convert it to 8-bit
-    opencv::core::normalize(
-        &input,
-        &mut output,
-        0.0,
-        255.0,
-        opencv::core::NORM_MINMAX,
-        CV_8UC1,
-        &Mat::default(),
-    )?;
+//     // Normalize the u16 matrix to the range [0, 255] and convert it to 8-bit
+//     opencv::core::normalize(
+//         &input,
+//         &mut output,
+//         0.0,
+//         255.0,
+//         opencv::core::NORM_MINMAX,
+//         CV_8UC1,
+//         &Mat::default(),
+//     )?;
 
-    Ok(output)
-}
+//     Ok(output)
+// }

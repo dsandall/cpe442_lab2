@@ -1,4 +1,0 @@
-// do nothing
-
-fn main() {
-}
