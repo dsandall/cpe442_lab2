@@ -1,6 +1,6 @@
 #![feature(portable_simd)] // Enable the portable SIMD feature in nightly Rust
 
-use core::simd::{f32x4}; // Import the f32x4 type
+use core::intrinsics::simd::aarch64; // Import the f32x4 type
 
 fn main() {
     // Create a SIMD vector with specific elements

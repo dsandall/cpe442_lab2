@@ -5,6 +5,7 @@ use opencv::{
 };
 use std::time::Instant;
 
+mod my_arm_neon;
 const NUM_THREADS: usize = 4;
 
 fn main() -> Result<()> {
@@ -124,8 +125,8 @@ fn do_frame(frame: &Mat) -> Result<Mat> {
 // Process Sobel in parallel
 fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
     let results: Vec<Mat> = mats.par_iter().map(|mat| {
-        to442_sobel( 
-            &to442_grayscale_SIMD(mat).unwrap()
+        my_arm_neon::to442_sobel_simd( 
+            &my_arm_neon::to442_grayscale_simd(mat).unwrap()
         ).unwrap()
     }).collect();
 
@@ -136,90 +137,4 @@ fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
     // to442_sobel(&to442_grayscale(&mats[3]).unwrap()).unwrap()];
 
     Ok(results)
-}
-
-
-use std::arch::aarch64::{
-    float32x4_t, vaddq_f32, vld1q_f32, vmulq_n_f32, vst1q_f32
-};
-
-fn to442_grayscale_SIMD(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
-
-    // Convert the frame reference to a mutable slice of `u8`
-    let bgr_data: &[u8] = unsafe { std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize) };
-    assert!(bgr_data.len() % 12 == 0, "Input data length must be a multiple of 12");
-
-    // convert the output to a mutable slice
-    let output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
-    let out_ptr: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(output.data() as *mut u8, (frame.rows() * frame.cols()) as usize) };
-
-
-    // Process each chunk of 12 bytes (4 pixels * 3 channels)
-    for (index, chunk) in bgr_data.chunks_exact(12).enumerate() {
-        // Load the BGR bytes into separate arrays for NEON operations
-        let b: [f32; 4] = [chunk[0].into(), chunk[3].into(), chunk[6].into(), chunk[9].into()]; // Blue values
-        let g: [f32; 4] = [chunk[1].into(), chunk[4].into(), chunk[7].into(), chunk[10].into()]; // Green values
-        let r: [f32; 4] = [chunk[2].into(), chunk[5].into(), chunk[8].into(), chunk[11].into()]; // Red values
-
-        unsafe {
-            // 4 pixels split into 3 vectors
-            let mut b: float32x4_t = vld1q_f32(b.as_ptr()); 
-            let mut g: float32x4_t = vld1q_f32(g.as_ptr()); 
-            let mut r: float32x4_t = vld1q_f32(r.as_ptr()); 
-            
-            // multiplication by scalar coefficients
-            b = vmulq_n_f32(b, 0.0722);
-            g = vmulq_n_f32(g, 0.7152);
-            r = vmulq_n_f32(r, 0.2126);
-            
-            
-            // add em back up into one 4 pixel vector
-            let grey: float32x4_t = vaddq_f32(r, vaddq_f32(b, g)); 
-
-            let mut grey_vec: [f32; 4] = [0.0; 4];
-            vst1q_f32( grey_vec.as_mut_ptr(), grey);
-
-            out_ptr[index * 4] = grey_vec[0] as u8;
-            out_ptr[index * 4 + 1] = grey_vec[1] as u8;
-            out_ptr[index * 4 + 2] = grey_vec[2] as u8;
-            out_ptr[index * 4 + 3] = grey_vec[3] as u8;
-        }
-        
-    }
-
-    Ok(output)
-}
-
-
-
-fn to442_sobel(frame: &Mat) -> Result<Mat> {
-
-    let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
-
-    let gx: [[i32; 3]; 3] = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
-    let gy: [[i32; 3]; 3] = [[1, 2, 1], [0, 0, 0], [-1, -2, -1]];
-
-    for y in 1..(frame.rows() - 1) {
-        for x in 1..(frame.cols() - 1) {
-            let (sum_x, sum_y) = (0..3)
-                .flat_map(|ky| {
-                    (0..3).map(move |kx| {
-                        let pixel: i32 = (*frame.at_2d::<u8>(y + ky - 1, x + kx - 1).unwrap()).into();
-                        (
-                            pixel * gx[ky as usize][kx as usize],
-                            pixel * gy[ky as usize][kx as usize],
-                        )
-                    })
-                })
-                .fold((0i32, 0i32), |(acc_x, acc_y), (dx, dy)| {
-                    (acc_x + dx, acc_y + dy)
-                }); 
-
-            let magnitude = (sum_x.abs() + sum_y.abs()).min(255) as u8;
-
-            *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
-        }
-    }
-
-    Ok(output)
 }

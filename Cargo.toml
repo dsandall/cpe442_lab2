@@ -13,9 +13,9 @@ name = "my_arm_neon"
 path = "src/my_arm_neon.rs"
 
 ## Define binaries
-#[[bin]]
-#name = "lab4"
-#path = "src/bin/lab4.rs"
+[[bin]]
+name = "lab5"
+path = "src/lab5_simd.rs"
 
 
 # Profiles

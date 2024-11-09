@@ -1,99 +1,212 @@
 // #![cfg(target_arch = "aarch64")]
 
-// use std::arch::aarch64::{vld1q_u8, vaddq_u32, vmlaq_f32, vdupq_n_f32, vst1_u8, vld1q_f32, vadd_s8};
-// use opencv::{
-//     boxed_ref::BoxedRef, core::{Mat, CV_8UC1}, prelude::*, Result
-// };
-
-// pub fn to442_grayscale(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
-//     let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
-
-//     // Convert the frame reference to a mutable slice of `u8`
-//     let data_slice: &[u8] = unsafe { std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize) };
-//     let output_slice: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(output.data_mut(), (output.rows() * output.cols()) as usize) };
-
-//     // Process 16 pixels (48 bytes) at a time using NEON
-//     let pixel_count = frame.cols() * frame.rows();
-//     let chunks = pixel_count / 16; // Number of full chunks
-//     let remainder = pixel_count % 16; // Remainder pixels
-
-//     // Use SIMD for the chunks of 16 pixels
-//     for chunk in 0..chunks {
-//         let start_index = chunk * 16 * 3; // Each pixel has 3 channels (BGR)
-//         unsafe{
-        
-//             // Load 16 pixels (48 bytes)
-//             let b_vec = vld1q_u8(data_slice[start_index..(start_index + 16 * 3)].as_ptr()); // B channel
-//             let g_vec = vld1q_u8(data_slice[start_index + 1..start_index + 16 * 3].as_ptr()); // G channel
-//             let r_vec = vld1q_u8(data_slice[start_index + 2..start_index + 16 * 3].as_ptr()); // R channel
-
-//             // Convert to float and apply the grayscale formula
-//             let b_float = unsafe{ vdupq_n_f32(0.2126) };
-//             let g_float = unsafe{ vdupq_n_f32(0.7152) };
-//             let r_float = unsafe{ vdupq_n_f32(0.0722) };
-
-//             let gray_float = vmlaq_f32(
-//                 vmlaq_f32(vdupq_n_f32(0.0), vld1q_f32(b_vec.as_ptr() as *const f32), b_float),
-//                 vld1q_f32(g_vec.as_ptr() as *const f32),
-//                 g_float
-//             );
-
-//             let gray_float = vmlaq_f32(gray_float, vld1q_f32(r_vec.as_ptr() as *const f32), r_float);
-
-//             // Store the result back into the output slice
-//             let gray_u8: [u8; 16] = std::mem::transmute(gray_float);
-//             vst1_u8(output_slice[start_index / 3..].as_mut_ptr().add(chunk * 16), gray_u8.as_ptr());
-//         }
-//     }
-
-//     // Handle the remainder pixels
-//     for i in (chunks * 16 * 3)..(pixel_count * 3) {
-//         let b: f32 = data_slice[i as usize].into(); // Blue channel
-//         let g = data_slice[(i + 1) as usize].into(); // Green channel
-//         let r: f32 = data_slice[(i + 2) as usize].into(); // Red channel
-
-//         // Apply the grayscale formula
-//         let gray_value = (0.2126 * r + 0.7152 * g + 0.0722 * b) as u8;
-
-//         // Set the pixel value in the output matrix
-//         output_slice[i / 3] = gray_value;
-//     }
-
-//     Ok(output)
-// }
+// use std::env;
+// use rayon::prelude::*;
+use opencv::{
+    core::{Buffer_Access, Mat, MatTrait, MatTraitConst, CV_8UC1}, 
+    // highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio, 
+    Result
+};
+// use std::time::Instant;
 
 
-use std::arch::aarch64::{vld1q_u8, vreinterpretq_f32_u32, float32x4_t, uint8x16_t, uint32x4_t, vreinterpretq_u32_u8};
+use std::arch::aarch64::*;
 
-pub fn example_reinterpret_cast(data: &[u8]) -> ([f32; 4], [u32; 4]) {
-    // Assume data length is at least 16 bytes for this example
-    let vector: uint8x16_t = unsafe { vld1q_u8(data.as_ptr()) }; // Load 16 u8 values
+pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
 
-    // Reinterpret as u32
-    let u32_vector: uint32x4_t = unsafe { vreinterpretq_u32_u8(vector) };
-    
-    // Reinterpret as f32
-    let f32_vector: float32x4_t = unsafe { vreinterpretq_f32_u32(u32_vector) };
+    // Convert the frame reference to a mutable slice of `u8`
+    let bgr_data: &[u8] = unsafe { std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize) };
+    assert!(bgr_data.len() % 12 == 0, "Input data length must be a multiple of 12");
 
-    // Create arrays to hold the results for demonstration purposes
-    let mut f32_array: [f32; 4] = [0.0; 4];
-    let mut u32_array: [u32; 4] = [0; 4];
+    // convert the output to a mutable slice
+    let output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
+    let out_ptr: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(output.data() as *mut u8, (frame.rows() * frame.cols()) as usize) };
 
-    // Store the results back into arrays (if needed)
-    unsafe{
-        for i in 0..4 {
-            f32_array[i] = *(((&f32_vector as *const float32x4_t) as *const f32).offset(i as isize)) ;
-            u32_array[i] = *(((&u32_vector as *const uint32x4_t) as *const u32).offset(i as isize)) ;
+
+    // Process each chunk of 12 bytes (4 pixels * 3 channels)
+    for (index, chunk) in bgr_data.chunks_exact(12).enumerate() {
+        // Load the BGR bytes into separate arrays for NEON operations
+        let b: [f32; 4] = [chunk[0].into(), chunk[3].into(), chunk[6].into(), chunk[9].into()]; // Blue values
+        let g: [f32; 4] = [chunk[1].into(), chunk[4].into(), chunk[7].into(), chunk[10].into()]; // Green values
+        let r: [f32; 4] = [chunk[2].into(), chunk[5].into(), chunk[8].into(), chunk[11].into()]; // Red values
+
+        unsafe {
+            // 4 pixels split into 3 vectors
+            let mut b: float32x4_t = vld1q_f32(b.as_ptr()); 
+            let mut g: float32x4_t = vld1q_f32(g.as_ptr()); 
+            let mut r: float32x4_t = vld1q_f32(r.as_ptr()); 
+            
+            // multiplication by scalar coefficients
+            b = vmulq_n_f32(b, 0.0722);
+            g = vmulq_n_f32(g, 0.7152);
+            r = vmulq_n_f32(r, 0.2126);
+            
+            
+            // add em back up into one 4 pixel vector
+            let grey: float32x4_t = vaddq_f32(r, vaddq_f32(b, g)); 
+
+            let mut grey_vec: [f32; 4] = [0.0; 4];
+            vst1q_f32( grey_vec.as_mut_ptr(), grey);
+
+            out_ptr[index * 4] = grey_vec[0] as u8;
+            out_ptr[index * 4 + 1] = grey_vec[1] as u8;
+            out_ptr[index * 4 + 2] = grey_vec[2] as u8;
+            out_ptr[index * 4 + 3] = grey_vec[3] as u8;
         }
+        
     }
-    (f32_array, u32_array)
+
+    Ok(output)
 }
 
-fn main() {
-    let data: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-    
-    let (f32_values, u32_values) = example_reinterpret_cast(&data);
-    
-    println!("F32 Values: {:?}", f32_values);
-    println!("U32 Values: {:?}", u32_values);
+
+
+
+pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
+
+    let input = unsafe { std::slice::from_raw_parts(frame.data() as *mut u8, (frame.rows() * frame.cols()) as usize) };
+    let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
+
+
+    // Define the Sobel kernels as arrays of 8-bit signed integers
+    let gx_data: [[i8; 8]; 3] = [
+        [-1, 0, 1, 0, 0, 0, 0, 0], // First row of gx kernel, padded with 0s
+        [-2, 0, 2, 0, 0, 0, 0, 0], // Second row of gx kernel
+        [-1, 0, 1, 0, 0, 0, 0, 0], // Third row of gx kernel
+    ];
+
+    let gy_data: [[i8; 8]; 2] = [
+        [1, 2, 1, 0, 0, 0, 0, 0],   // First row of gy kernel
+        // [0, 0, 0, 0, 0, 0, 0, 0],   //  row of gy kernel (all zeros)
+        [-1, -2, -1, 0, 0, 0, 0, 0],// Second row of gy kernel
+    ];
+
+    // Load the arrays into NEON registers
+    let gx: (int8x8_t, int8x8_t, int8x8_t) = unsafe {(
+        vld1_s8(gx_data[0].as_ptr()), // Load first row into int8x8_t
+        vld1_s8(gx_data[1].as_ptr()), // Load second row into int8x8_t
+        vld1_s8(gx_data[2].as_ptr()) // Load third row into int8x8_t
+    )};
+
+    let gy: (int8x8_t, int8x8_t) = unsafe {(
+        vld1_s8(gy_data[0].as_ptr()), // Load first row into int8x8_t
+        // vld1_s8(gy_data[].as_ptr()), // Load second row into int8x8_t
+        vld1_s8(gy_data[1].as_ptr()) // Load third row into int8x8_t
+    )};
+        
+    let x_kernel = unsafe {(
+        vmovl_s8(gx.0),
+        vmovl_s8(gx.1),
+        vmovl_s8(gx.2)
+    )};
+    let y_kernel = unsafe {(
+        vmovl_s8(gx.0),
+        vmovl_s8(gx.1),
+        vmovl_s8(gx.2)
+    )};
+
+    //for each inner pixel
+    for y in 1..(frame.rows() - 1) {
+        for x in 1..(frame.cols() - 1) {
+            // let pixel = (output.at_2d_mut::<u8>(y, x)?, x, y); 
+            
+
+            //load next u8 (x8) into 
+            let surround:(uint8x8_t, uint8x8_t, uint8x8_t) = unsafe {
+                (
+                    vld1_u8(input.as_ptr().offset((y as isize - 1) * frame.cols() as isize + (x - 1) as isize)), // row above
+                    vld1_u8(input.as_ptr().offset((y as isize) * frame.cols() as isize + (x - 1) as isize)), // row center
+                    vld1_u8(input.as_ptr().offset((y as isize + 1) * frame.cols() as isize + (x - 1) as isize)), // row below
+                )
+            };                                                
+
+            // u8 to signed 16 bit greyscale pixels, 3x8 grid (3 vectors of 8)
+            let signed_surround = unsafe {(
+                vreinterpretq_s16_u16(vmovl_u8(surround.0)),
+                vreinterpretq_s16_u16(vmovl_u8(surround.1)),
+                vreinterpretq_s16_u16(vmovl_u8(surround.2))
+            )};
+
+
+            
+            // perform x kernel convolution for first position
+            let mut acc: int16x8_t = unsafe {vdupq_n_s16(0)}; // Initialize all 8 elements to 0
+
+            unsafe {
+                acc = vmlaq_s16(signed_surround.0, x_kernel.0, acc);
+                acc = vmlaq_s16(signed_surround.1, x_kernel.1, acc);
+                acc = vmlaq_s16(signed_surround.2, x_kernel.2, acc);
+            }
+
+            let x_kernel_sum = unsafe {vaddvq_s16(acc)} ; // This sums all the elements in the vector and returns a scalar value
+
+            // perform y kernel convolution for first position
+            acc = unsafe {vdupq_n_s16(0)}; // Initialize all 8 elements to 0
+
+            unsafe {
+                acc = vmlaq_s16(signed_surround.0, y_kernel.0, acc);
+                // note the indexes are slightly different due to the blank row in kernel y
+                acc = vmlaq_s16(signed_surround.2, y_kernel.1, acc);
+            }
+
+            let y_kernel_sum = unsafe {vaddvq_s16(acc)};
+
+
+
+
+
+
+
+
+
+
+            let magnitude = (x_kernel_sum.abs() + y_kernel_sum.abs()).min(255) as u8;
+            *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
+
+
+
+        // load surrounding pixels into matrix (at least 3x3 in vectors)
+        // apply sobel by vectors (3+2 3 vectors) x (associated row of surrounding pixels)
+        // sum each sobel vector and add to other vecs (output 2 signed int)
+        // sum abs. and truncate to 1 u8
+
+        }
+    }
+    Ok(output)
+
+
+
+
+    // // compute sobel for each inner pixel
+    // for y in 1..(frame.rows() - 1) {
+    //     for x in 1..(frame.cols() - 1) {
+
+    //     // Initialize accumulators for the x and y gradients
+    //     let (sum_x, sum_y) = 
+    //         (0..3).flat_map(|ky| { // Iterate over the y kernel indices
+    //             (0..3).map(move |kx| { // Iterate over the x kernel indices
+    //                 // get the greyscale value for that kernel pixel
+    //                 let pixel: u8 = *frame.at_2d::<u8>(y + ky - 1, x + kx - 1).unwrap();
+                    
+    //                 // Calculate contributions to the x and y gradients using the Sobel kernels
+    //                 let gradient_x = pixel as i16 * gx[ky as usize][kx as usize]; // Contribution for Gx
+    //                 let gradient_y = pixel as i16 * gy[ky as usize][kx as usize]; // Contribution for Gy
+                    
+    //                 // Return the contributions as a tuple
+    //                 (gradient_x, gradient_y)
+    //             })
+    //         })
+    //         // Accumulate the gradient contributions into sum_x and sum_y
+    //         .fold((0i16, 0i16), |(acc_x, acc_y), (dx, dy)| {
+    //             (acc_x + dx, acc_y + dy)
+    //         });
+
+
+    //         let magnitude = (sum_x.abs() + sum_y.abs()).min(255) as u8;
+
+    //         *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
+
+    //     }
+    // }
+    // Ok(output)
 }
