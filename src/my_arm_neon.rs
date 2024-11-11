@@ -105,6 +105,7 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
         vmovl_s8(gx.2)
     )};
 
+
     //for each inner pixel
     for y in 1..(frame.rows() - 1) {
         for x in 1..(frame.cols() - 1) {

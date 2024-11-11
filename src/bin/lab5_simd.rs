@@ -5,7 +5,7 @@ use opencv::{
 };
 use std::time::Instant;
 
-mod my_arm_neon;
+// mod my_arm_neon;
 const NUM_THREADS: usize = 4;
 
 fn main() -> Result<()> {
