@@ -110,15 +110,10 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
             unsafe {
                 // load next u8 (x8) 
                 let surround:[uint8x8_t; 3] = [
-                    // vld1_u8(value - frame.cols() as usize), // row above
-                    // vld1_u8(value ), // row above
                     vld1_u8((&(chunk.1)[0] as *const u8).offset((- frame.cols() as isize) -1)), // row above
                     vld1_u8((&(chunk.1)[0] as *const u8).offset(-1)), // row 
                     vld1_u8((&(chunk.1)[0] as *const u8).offset(frame.cols() as isize -1)), // row below
-
-                    // vld1_u8(input.as_ptr().offset((y as isize) * frame.cols() as isize + (x - 1) as isize)), // row center
-                    // vld1_u8(input.as_ptr().offset((y as isize + 1) * frame.cols() as isize + (x - 1) as isize)), // row below
-                ];       
+                ];      
                 
                 // u8 to signed 16 bit greyscale pixels, 3x8 grid (3 vectors of 8)
                 let signed_surround = surround.map(|x| vreinterpretq_s16_u16(vmovl_u8(x)));    
@@ -172,7 +167,7 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
                     let r_shift_kernel_row = |kernel_row| vextq_s16::<7>(kernel_row, kernel_row);
                     x_kernel = x_kernel.map(r_shift_kernel_row);
                     y_kernel = y_kernel.map(r_shift_kernel_row);
-                }
+                }   
             }
             out_x += chunk.1.len() as i32;
         }
