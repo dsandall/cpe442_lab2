@@ -61,7 +61,6 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
 
 
 
-
 pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
     // let a = frame.input_output_array();
@@ -97,15 +96,7 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
         vld1_s8(gy_data[1].as_ptr()) // Load third row into int8x8_t
     )};
         
-    let mut x_kernel = unsafe {[
-        vmovl_s8(gx.0),
-        vmovl_s8(gx.1),
-        vmovl_s8(gx.2)
-    ]};
-    let mut y_kernel = unsafe {[
-        vmovl_s8(gy.0),
-        vmovl_s8(gy.1)
-    ]};
+
 
     let mut out_x = 0;
 
@@ -114,54 +105,77 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
         let row = &row[1..row.len() - 1]; // don't sobel the first or last columns
         // for value in row.chunks(6) {
-        for value in row.iter() {
+        for chunk in row.chunks(6).enumerate() {
+
             unsafe {
                 // load next u8 (x8) 
                 let surround:[uint8x8_t; 3] = [
                     // vld1_u8(value - frame.cols() as usize), // row above
                     // vld1_u8(value ), // row above
-                    vld1_u8((value as *const u8).offset((- frame.cols() as isize) -1)), // row above
-                    vld1_u8((value as *const u8).offset(-1)), // row 
-                    vld1_u8((value as *const u8).offset(frame.cols() as isize -1)), // row below
+                    vld1_u8((&(chunk.1)[0] as *const u8).offset((- frame.cols() as isize) -1)), // row above
+                    vld1_u8((&(chunk.1)[0] as *const u8).offset(-1)), // row 
+                    vld1_u8((&(chunk.1)[0] as *const u8).offset(frame.cols() as isize -1)), // row below
 
                     // vld1_u8(input.as_ptr().offset((y as isize) * frame.cols() as isize + (x - 1) as isize)), // row center
                     // vld1_u8(input.as_ptr().offset((y as isize + 1) * frame.cols() as isize + (x - 1) as isize)), // row below
                 ];       
                 
                 // u8 to signed 16 bit greyscale pixels, 3x8 grid (3 vectors of 8)
-                let signed_surround = surround.map(|x| vreinterpretq_s16_u16(vmovl_u8(x)));                                         
+                let signed_surround = surround.map(|x| vreinterpretq_s16_u16(vmovl_u8(x)));    
 
-                // perform x kernel convolution for first position
-                let mut acc: int16x8_t = vdupq_n_s16(0); // Initialize all 8 elements to 0
-                acc = vmlaq_s16(acc, signed_surround[0], x_kernel[0]);
-                acc = vmlaq_s16(acc, signed_surround[1], x_kernel[1]);
-                acc = vmlaq_s16(acc, signed_surround[2], x_kernel[2]);
-                let x_kernel_sum = vaddvq_s16(acc); // This sums all the elements in the vector and returns a scalar value
+                #[cfg(feature = "debug")] println!("\n\nSigned surrounding pixels: {:?}, {:?}, {:?}", signed_surround[0], signed_surround[1], signed_surround[2]);
 
-                // perform y kernel convolution for first position
-                acc = vdupq_n_s16(0); // Initialize all 8 elements to 0
-                acc = vmlaq_s16(acc, signed_surround[0], y_kernel[0]);
-                acc = vmlaq_s16(acc, signed_surround[2], y_kernel[1]); // note the indexes are slightly different due to the blank row in kernel y
-                let y_kernel_sum = vaddvq_s16(acc);
+                let mut x_kernel = {[
+                    vmovl_s8(gx.0),
+                    vmovl_s8(gx.1),
+                    vmovl_s8(gx.2)
+                ]};
+                let mut y_kernel = {[
+                    vmovl_s8(gy.0),
+                    vmovl_s8(gy.1)
+                ]};                                     
 
-                // save the results into the output frame
-                let magnitude = (x_kernel_sum.abs() + y_kernel_sum.abs()).min(255) as u8;
-                *(output.at_2d_mut::<u8>(out_y as i32+ 1, out_x+1)?) = magnitude;
-                // dbg!("{},{} succeeded", out_x, out_y);
+                for i in 0..chunk.1.len() {
+
+                    #[cfg(feature = "debug")] println!("x kern: {:?}, {:?}, {:?}",x_kernel[0], x_kernel[1], x_kernel[2]);
+                    #[cfg(feature = "debug")] println!("y kern: {:?}, {:?}", y_kernel[0], y_kernel[1]);
+
+                    // perform x kernel convolution for first position
+                    let mut acc: int16x8_t = vdupq_n_s16(0); // Initialize all 8 elements to 0
+                    acc = vmlaq_s16(acc, signed_surround[0], x_kernel[0]);
+                    #[cfg(feature = "debug")] println!("x1 acc {:?}",acc);
+
+                    acc = vmlaq_s16(acc, signed_surround[1], x_kernel[1]);
+                    #[cfg(feature = "debug")] println!("x2 acc {:?}",acc);
+
+                    acc = vmlaq_s16(acc, signed_surround[2], x_kernel[2]);
+                    #[cfg(feature = "debug")] println!("x3 acc {:?}",acc);
+
+                    let x_kernel_sum: i16 = vaddvq_s16(acc); // This sums all the elements in the vector and returns a scalar value
+                    #[cfg(feature = "debug")] println!("X kernel sum: {}", x_kernel_sum);
+
+                    // perform y kernel convolution for first position
+                    acc = vdupq_n_s16(0); // Initialize all 8 elements to 0
+                    acc = vmlaq_s16(acc, signed_surround[0], y_kernel[0]);
+                    acc = vmlaq_s16(acc, signed_surround[2], y_kernel[1]); // note the indexes are slightly different due to the blank row in kernel y
+                    let y_kernel_sum = vaddvq_s16(acc);
+                    #[cfg(feature = "debug")] println!("Y kernel sum: {}", y_kernel_sum);
 
 
-                // // shift kernels over by one pixel
-                // let r_shift_kernel_row = |kernel_row| vshrq_n_s16::<1>(kernel_row);
-                // x_kernel = x_kernel.map(r_shift_kernel_row);
-                // y_kernel = y_kernel.map(r_shift_kernel_row);
+                    // save the results into the output frame
+                    let magnitude = (x_kernel_sum.abs() + y_kernel_sum.abs()).min(255) as u8;
+                    *(output.at_2d_mut::<u8>(out_y as i32 +1, out_x +1 +i as i32)?) = magnitude;
+                    #[cfg(feature = "debug")] println!("Stored magnitude ({}) at (x: {}, y: {})", magnitude, x_kernel_sum, y_kernel_sum);
 
 
+                    // shift kernels over by one pixel (vector rotate elements)
+                    let r_shift_kernel_row = |kernel_row| vextq_s16::<7>(kernel_row, kernel_row);
+                    x_kernel = x_kernel.map(r_shift_kernel_row);
+                    y_kernel = y_kernel.map(r_shift_kernel_row);
+                }
             }
-
-            out_x += 1;
-
+            out_x += chunk.1.len() as i32;
         }
-
         out_x = 0;
     }
 

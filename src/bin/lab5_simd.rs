@@ -131,10 +131,10 @@ fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
     }).collect();
 
     // // Sequential implementation (still splits the frame)
-    // let results = vec![to442_sobel(&to442_grayscale(&mats[0]).unwrap()).unwrap(), 
-    // to442_sobel(&to442_grayscale(&mats[1]).unwrap()).unwrap(),
-    // to442_sobel(&to442_grayscale(&mats[2]).unwrap()).unwrap(),
-    // to442_sobel(&to442_grayscale(&mats[3]).unwrap()).unwrap()];
+    // let results = vec![my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[0]).unwrap()).unwrap(), 
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[1]).unwrap()).unwrap(),
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[2]).unwrap()).unwrap(),
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[3]).unwrap()).unwrap()];
 
     Ok(results)
 }
