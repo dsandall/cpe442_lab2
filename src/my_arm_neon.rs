@@ -3,14 +3,84 @@
 // use std::env;
 // use rayon::prelude::*;
 use opencv::{
-    core::{Buffer_Access, Mat, MatTrait, MatTraitConst, CV_8UC1}, 
+    core::{Buffer_Access, Mat, MatTrait, MatTraitConst, CV_8UC1, CV_8UC3}, 
     // highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio, 
     Result
 };
+use rayon::prelude::*;
+use opencv::{
+    boxed_ref::BoxedRef, core::{Rect}, highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio
+};
 // use std::time::Instant;
 
-
 use std::arch::aarch64::*;
+
+const NUM_THREADS: usize = 4;
+
+pub fn do_frame(frame: &Mat) -> Result<Mat> {
+    // Calculate the height for each smaller matrix
+    let split_height = frame.rows() / NUM_THREADS as i32;
+
+    // Create the smaller matrices with the specified overlaps
+    let mat1 = Mat::roi(frame, Rect::new(0, 0, frame.cols(), split_height + 1))?;
+    let mat2 = Mat::roi(frame, Rect::new(0, split_height - 1, frame.cols(), split_height + 2))?;
+    let mat3 = Mat::roi(frame, Rect::new(0, split_height * 2 - 1, frame.cols(), split_height + 2))?;
+    let mat4 = Mat::roi(frame, Rect::new(0, split_height * 3 - 1, frame.cols(), split_height + 1))?;
+
+    dbg!("process frame begin earlier");
+
+    //move these to parallel 
+    let mats = vec![mat1, mat2, mat3, mat4];
+    let sobel_results = do_sobel_parallel(&mats)?;
+    //end parallel
+
+    dbg!("process frame begin");
+
+    // Trim the results
+    let mat1_trimmed = Mat::roi(&sobel_results[0], Rect::new(1, 1, sobel_results[0].cols() - 2, sobel_results[0].rows() - 2))?;
+    let mat2_trimmed = Mat::roi(&sobel_results[1], Rect::new(1, 1, sobel_results[1].cols() - 2, sobel_results[1].rows() - 2))?;
+    let mat3_trimmed = Mat::roi(&sobel_results[2], Rect::new(1, 1, sobel_results[2].cols() - 2, sobel_results[2].rows() - 2))?;
+    let mat4_trimmed = Mat::roi(&sobel_results[3], Rect::new(1, 1, sobel_results[3].cols() - 2, sobel_results[3].rows() - 1))?;
+
+    // Create a new Mat for the combined result
+    let combined_height = mat1_trimmed.rows() + mat2_trimmed.rows() + mat3_trimmed.rows() + mat4_trimmed.rows(); // Total height
+    let mut combined_frame = unsafe{Mat::new_rows_cols(combined_height, mat1_trimmed.cols(), CV_8UC1)}?; // Create an empty matrix of the appropriate size
+
+    // Copy the data from each matrix into the combined frame
+    let mut current_row = 0;
+
+    for mat in &[mat1_trimmed, mat2_trimmed, mat3_trimmed, mat4_trimmed] {
+        
+        // Create a ROI for the current position in the combined frame
+        let mut roi = Mat::roi_mut(&mut combined_frame, Rect::new(0, current_row, mat.cols(), mat.rows()))?;
+
+        // Copy the data
+        mat.copy_to(&mut roi)?;
+
+        current_row += mat.rows(); // Move to the next position
+    }
+
+    dbg!("process frame complete");
+
+    Ok(combined_frame)
+}
+
+// Process Sobel in parallel
+pub fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
+    let results: Vec<Mat> = mats.par_iter().map(|mat| {
+        to442_sobel_simd( 
+            &to442_grayscale_simd(mat).unwrap()
+        ).unwrap()
+    }).collect();
+
+    // // Sequential implementation (still splits the frame)
+    // let results = vec![my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[0]).unwrap()).unwrap(), 
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[1]).unwrap()).unwrap(),
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[2]).unwrap()).unwrap(),
+    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[3]).unwrap()).unwrap()];
+
+    Ok(results)
+}
 
 pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
 
@@ -58,8 +128,6 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
 
     Ok(output)
 }
-
-
 
 pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
@@ -132,7 +200,7 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
                 for i in 0..chunk.1.len() {
 
-                    #[cfg(feature = "debug")] println!("x kern: {:?}, {:?}, {:?}",x_kernel[0], x_kernel[1], x_kernel[2]);
+                    #[cfg(feature = "debug")] println!("x kern: {:?}, {:?}, {:?}", x_kernel[0], x_kernel[1], x_kernel[2]);
                     #[cfg(feature = "debug")] println!("y kern: {:?}, {:?}", y_kernel[0], y_kernel[1]);
 
                     // perform x kernel convolution for first position
@@ -309,4 +377,53 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
 
     Ok(output)
+}
+
+
+use opencv::{core, prelude::*};
+use serde::{Serialize, Deserialize};
+use bincode;
+
+#[derive(Serialize, Deserialize)]
+struct MatMessage {
+    rows: i32,
+    cols: i32,
+    mat_type: i32, // e.g., CV_8UC3
+    data: Vec<u8>,
+}
+
+pub fn mat_to_message(mat: &core::Mat) -> Vec<u8> {
+    let rows = mat.rows();
+    let cols = mat.cols();
+    let mat_type = mat.typ();
+    let data = mat.data_bytes().unwrap().to_vec(); // Extract raw data as Vec<u8>
+
+    let mat_message = MatMessage {
+        rows,
+        cols,
+        mat_type,
+        data,
+    };
+
+    dbg!(&mat_message.data[0..8]);
+    bincode::serialize(&mat_message).expect("Serialization failed")
+
+}
+
+pub fn message_to_mat(bytes: Vec<u8>) -> core::Mat {
+
+    let msg: MatMessage = bincode::deserialize(&bytes).expect("Deserialization failed");
+    dbg!(&msg.rows, &msg.cols, &msg.mat_type);
+    dbg!(&msg.data[0..8]);
+
+    // let mat = unsafe {opencv::core::Mat::new_rows_cols_with_bytes::<T>(
+    //     msg.rows,
+    //     msg.cols,
+    //     &msg.data
+    // )}  
+    unsafe {
+        opencv::core::Mat::new_rows_cols_with_data_unsafe_def(msg.rows, msg.cols, msg.mat_type, msg.data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
+    }.expect("Failed to parse matrix")
+    // .unwrap().clone_pointee();
+
 }
