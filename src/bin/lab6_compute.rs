@@ -11,8 +11,6 @@ use std::thread;
 use std::time::Duration;
 use zmq::Context;
 
-
-
 fn main() {
     let context = Context::new();
 
@@ -21,7 +19,11 @@ fn main() {
         .socket(zmq::PULL)
         .expect("Failed to create task receiver");
     task_receiver
-        .connect(&format!("tcp://{}:{}", mat_packet::HOST_IP, mat_packet::TASK_PORT))
+        .connect(&format!(
+            "tcp://{}:{}",
+            mat_packet::HOST_IP,
+            mat_packet::TASK_PORT
+        ))
         .expect("Failed to connect to task receiver");
 
     // Result sender (PUSH)
@@ -29,7 +31,11 @@ fn main() {
         .socket(zmq::PUSH)
         .expect("Failed to create result sender");
     result_sender
-        .connect(&format!("tcp://{}:{}", mat_packet::HOST_IP, mat_packet::RESULT_PORT))
+        .connect(&format!(
+            "tcp://{}:{}",
+            mat_packet::HOST_IP,
+            mat_packet::RESULT_PORT
+        ))
         .expect("Failed to connect to result sender");
 
     println!("Compute node is ready for tasks.");
@@ -39,12 +45,13 @@ fn main() {
         dbg!("Message reception:");
 
         let message = task_receiver.recv_msg(0).unwrap();
-        let msg: mat_packet::MatMessage = bincode::deserialize(&message).expect("Deserialization failed");
+        let msg: mat_packet::MatMessage =
+            bincode::deserialize(&message).expect("Deserialization failed");
 
         dbg!("next are same?");
         dbg!(msg.data[0]);
         let frame_num = msg.number;
-        let frame = mat_packet::message_to_mat(&msg).unwrap();
+        let frame = Mat::try_from(&msg).unwrap();
         dbg!(frame.data_bytes().unwrap()[0]);
 
         // println!("Processing Packet ID {}: {}", packet_id, packet_data);
@@ -53,7 +60,8 @@ fn main() {
         let sobel_frame = my_arm_neon::do_frame(&frame).unwrap();
         dbg!("frame complete");
 
-        let mat_message = mat_packet::mat_to_message(&sobel_frame, frame_num, 0).unwrap();
+        let mat_message = mat_packet::from_mat(&sobel_frame, frame_num, 0).unwrap();
+
         let serialized: Vec<u8> = bincode::serialize(&mat_message).expect("Serialization failed");
 
         // let serialized = message; //just echo back the og frame
@@ -62,4 +70,3 @@ fn main() {
             .expect("Failed to send result");
     }
 }
-

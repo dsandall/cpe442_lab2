@@ -1,12 +1,6 @@
+use opencv::{boxed_ref::BoxedRef, core::Rect, highgui, prelude::*};
 use opencv::{
-    boxed_ref::BoxedRef,
-    core::Rect,
-    highgui::{self, WINDOW_AUTOSIZE},
-    prelude::*,
-    videoio,
-};
-use opencv::{
-    core::{Buffer_Access, Mat, MatTrait, MatTraitConst, CV_8UC1, CV_8UC3},
+    core::{Mat, MatTrait, MatTraitConst, CV_8UC1},
     Result,
 };
 use rayon::prelude::*;
@@ -16,9 +10,7 @@ use std::arch::aarch64::*;
 const NUM_THREADS: usize = 4;
 
 pub fn do_frame(frame: &Mat) -> Result<Mat> {
-
     dbg!("do_frame start");
-    // dbg!(frame.data_bytes()?);
 
     // Calculate the height for each smaller matrix
     let split_height = frame.rows() / NUM_THREADS as i32;

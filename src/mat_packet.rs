@@ -1,8 +1,8 @@
-use bincode;
-use opencv::{core, prelude::*};
+use opencv::{
+    core::{self, CV_8UC1, CV_8UC3},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
-use opencv::boxed_ref::BoxedRef;
 
 pub const TASK_PORT: &str = "5555"; // For sending tasks
 pub const RESULT_PORT: &str = "5556"; // For receiving results
@@ -20,6 +20,7 @@ pub struct MatMessage {
     pub data: Vec<u8>,
 }
 
+// traits to support comparing (and thus ordering) the packets by frame number
 impl Eq for MatMessage {}
 
 impl PartialEq for MatMessage {
@@ -40,45 +41,55 @@ impl PartialOrd for MatMessage {
     }
 }
 
-
-
-pub fn mat_to_message(mat: &core::Mat, number: u64, send_time: i32) -> Result<MatMessage, opencv::Error> {
-    let rows = mat.rows();
-    let cols = mat.cols();
-    let mat_type = mat.typ();
-    let data = mat.data_bytes()?.to_vec(); // Extract raw data as Vec<u8>
-
-    let mat_message = MatMessage {
-        rows,
-        cols,
-        mat_type,
-        number,
-        send_time,
-        data,
-    };
-
-    // dbg!(&mat_message.data[0..8]);
-
-    Ok(mat_message)
+// Conversion Traits/functions
+pub fn from_mat(mat: &core::Mat, number: u64, send_time: i32) -> Result<MatMessage, opencv::Error> {
+    Ok(MatMessage {
+        rows: mat.rows(),
+        cols: mat.cols(),
+        mat_type: mat.typ(),
+        number: number,
+        send_time: send_time,
+        data: mat.data_bytes()?.to_vec(),
+    })
 }
 
-pub fn message_to_mat(msg: &MatMessage) -> Result<core::Mat, opencv::Error> {
-    dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
-    dbg!(&msg.data[0..8]);
+impl TryFrom<&MatMessage> for opencv::core::Mat {
+    type Error = opencv::Error;
 
-    // let mat = unsafe {opencv::core::Mat::new_rows_cols_with_bytes::<T>(
-    //     msg.rows,
-    //     msg.cols,
-    //     &msg.data
-    // )}
+    fn try_from(msg: &MatMessage) -> Result<Self, Self::Error> {
+        // Test Assertions:
+        // Validate dimensions
+        if msg.rows <= 0 || msg.cols <= 0 {
+            dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
+            dbg!(&msg.data[0..8]);
+            return Err(opencv::Error::new(
+                opencv::core::StsOutOfRange,
+                "Invalid matrix dimensions",
+            ));
+        }
 
-    unsafe {
-        opencv::core::Mat::new_rows_cols_with_data_unsafe_def(
-            msg.rows,
-            msg.cols,
-            msg.mat_type,
-            msg.data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
-        )
+        // Validate data size expectations
+        let size = match msg.mat_type {
+            CV_8UC3 => 3,
+            CV_8UC1 => 1,
+            _ => 0,
+        };
+        let expected_size = (msg.rows * msg.cols * size) as usize;
+        if msg.data.len() != expected_size {
+            return Err(opencv::Error::new(
+                opencv::core::StsUnmatchedSizes,
+                "Matrix size does not match its data buffer length",
+            ));
+        }
+        // Test Assertions End
+
+        unsafe {
+            opencv::core::Mat::new_rows_cols_with_data_unsafe_def(
+                msg.rows,
+                msg.cols,
+                msg.mat_type,
+                msg.data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
+            )
+        }
     }
 }
-

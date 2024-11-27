@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::time::Instant;
-use std::{env, time::Duration};
 use opencv::{
     boxed_ref::BoxedRef,
     core::{Mat, Rect, CV_8UC1},
@@ -8,9 +5,12 @@ use opencv::{
     prelude::*,
     videoio, Result,
 };
+use std::sync::Arc;
+use std::time::Instant;
+// use std::prelude::*;
+use std::{env, time::Duration};
 
 use lib::mat_packet;
-use lib::my_arm_neon;
 
 use tokio::sync::Mutex;
 
@@ -72,7 +72,7 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
         // let combined_frame = my_arm_neon::do_frame(&frame)?;
         // let combined_frame = do_networks(frame, frame_count, &tx, &rx)?;
 
-        let mat_message = mat_packet::mat_to_message(&frame, frame_count, 0).unwrap();
+        let mat_message = mat_packet::from_mat(&frame, frame_count, 0).unwrap();
         let serialized: Vec<u8> = bincode::serialize(&mat_message).expect("Serialization failed");
         (*tx_guard)
             .send(serialized, 0)
@@ -84,9 +84,8 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
     Ok(())
 }
 
-
-use std::collections::BinaryHeap;
 use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
     let mut frame_count = 0;
@@ -105,13 +104,18 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
         let bytes: zmq::Message = (*rx_guard).recv_msg(0).unwrap(); //blocking
         println!("msg recvd");
 
-        let msg: mat_packet::MatMessage = bincode::deserialize(&bytes).expect("Deserialization failed");
+        let msg: mat_packet::MatMessage =
+            bincode::deserialize(&bytes).expect("Deserialization failed");
         drop(bytes);
 
         dbg!(msg.number);
 
         // Store the message in the buffer
-        frame_buffer.push(Reverse((msg.number, msg)));
+        if msg.number < next_frame_number {
+            break;
+        } else {
+            frame_buffer.push(Reverse((msg.number, msg)));
+        }
 
         // Process messages in order
         while let Some(Reverse((number, message))) = frame_buffer.peek() {
@@ -120,7 +124,7 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
                 let Reverse((_, msg)) = frame_buffer.pop().unwrap();
 
                 // Convert to a frame and display
-                let combined_frame = mat_packet::message_to_mat(&msg).unwrap();
+                let combined_frame = Mat::try_from(&msg).unwrap();
                 frame_count += 1;
                 total_sobel_time += Duration::new(1, 0);
 
@@ -142,7 +146,7 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
             }
         }
 
-        // Wait for 30ms between frames
+        // wait minimum time before continuing loop (note: maybe make display and packet reception different threads?)
         if highgui::wait_key(1).unwrap() == 27 {
             // Exit if the 'ESC' key is pressed
             println!("ESC key pressed. Exiting...");
@@ -152,7 +156,6 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
 
     Ok(())
 }
-
 
 fn init_zmq() -> Result<(Socket, Socket, Context)> {
     let context = Context::new();
