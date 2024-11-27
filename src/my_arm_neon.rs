@@ -1,21 +1,31 @@
-// #![cfg(target_arch = "aarch64")]
-
-// use std::env;
-// use rayon::prelude::*;
 use opencv::{
     core::{Buffer_Access, Mat, MatTrait, MatTraitConst, CV_8UC1, CV_8UC3}, 
-    // highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio, 
     Result
 };
 use rayon::prelude::*;
 use opencv::{
     boxed_ref::BoxedRef, core::{Rect}, highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio
 };
-// use std::time::Instant;
+use opencv::{core, prelude::*};
+use serde::{Serialize, Deserialize};
+use bincode;
+use std::time::Instant;
 
 use std::arch::aarch64::*;
 
 const NUM_THREADS: usize = 4;
+
+
+#[derive(Serialize, Deserialize)]
+pub struct MatMessage {
+    pub rows: i32,
+    pub cols: i32,
+    pub mat_type: i32, // e.g., CV_8UC3
+    pub number: u32, // the frame number 
+    pub send_time: i32, //should be time/Instant type though
+    pub data: Vec<u8>,
+}
+
 
 pub fn do_frame(frame: &Mat) -> Result<Mat> {
     // Calculate the height for each smaller matrix
@@ -131,8 +141,6 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
 
 pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
 
-    // let a = frame.input_output_array();
-
     let input = unsafe { std::slice::from_raw_parts(frame.data() as *mut u8, (frame.rows() * frame.cols()) as usize) };
     let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
 
@@ -242,157 +250,14 @@ pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
         out_x = 0;
     }
 
-
-
-    // //for each inner pixel
-    // for y in 1..(frame.rows() - 1) {
-    //     for x in 1..(frame.cols() - 1) {
-    //         // let pixel = (output.at_2d_mut::<u8>(y, x)?, x, y); 
-    
-    //         unsafe {
-    //             // load next u8 (x8) 
-    //             let surround: [uint8x8_t; 3] = [
-    //                 vld1_u8(input.as_ptr().offset((y as isize - 1) * frame.cols() as isize + (x - 1) as isize)), // row above
-    //                 vld1_u8(input.as_ptr().offset((y as isize) * frame.cols() as isize + (x - 1) as isize)), // row center
-    //                 vld1_u8(input.as_ptr().offset((y as isize + 1) * frame.cols() as isize + (x - 1) as isize)), // row below
-    //             ];
-    
-    //             // Debug: Print the raw surrounding pixel values
-    //             println!(
-    //                 "Surrounding pixels (raw): {:?}, {:?}, {:?}",
-    //                 surround[0], surround[1], surround[2]
-    //             );
-    
-    //             // u8 to signed 16 bit greyscale pixels, 3x8 grid (3 vectors of 8)
-    //             let signed_surround = surround.map(|x| vreinterpretq_s16_u16(vmovl_u8(x)));
-    
-    //             // Debug: Print the signed surrounding pixel values
-    //             println!(
-    //                 "Signed surrounding pixels: {:?}, {:?}, {:?}",
-    //                 signed_surround[0], signed_surround[1], signed_surround[2]
-    //             );
-    //             println!(
-    //                 "x kern: {:?}, {:?}, {:?}",
-    //                 x_kernel[0], x_kernel[1], x_kernel[2]
-    //             );
-    //             println!(
-    //                 "y kern: {:?}, {:?}",
-    //                 y_kernel[0], y_kernel[1]
-    //             );
-    
-    //             // perform x kernel convolution for first position
-    //             let mut acc: int16x8_t = vdupq_n_s16(0); // Initialize all 8 elements to 0
-    //             acc = vmlaq_s16(acc, signed_surround[0], x_kernel[0]);
-    //             println!(
-    //                 "x1 acc {:?}",
-    //                 acc
-    //             );
-    //             acc = vmlaq_s16(acc, signed_surround[1], x_kernel[1]);
-    //             println!(
-    //                 "x2 acc {:?}",
-    //                 acc
-    //             );
-    //             acc = vmlaq_s16(acc, signed_surround[2], x_kernel[2]);
-    //             println!(
-    //                 "x3 acc {:?}",
-    //                 acc
-    //             );
-    //             let x_kernel_sum = vaddvq_s16(acc); // This sums all the elements in the vector and returns a scalar value
-    
-    //             // Debug: Print the result of the x kernel sum
-    //             println!("X kernel sum: {}", x_kernel_sum);
-    
-    //             // perform y kernel convolution for first position
-    //             acc = vdupq_n_s16(0); // Initialize all 8 elements to 0
-    //             acc = vmlaq_s16(acc, signed_surround[0], y_kernel[0]);
-    //             acc = vmlaq_s16(acc, signed_surround[2], y_kernel[1]); // note the indexes are slightly different due to the blank row in kernel y
-    //             let y_kernel_sum = vaddvq_s16(acc);
-    
-    //             // Debug: Print the result of the y kernel sum
-    //             println!("Y kernel sum: {}", y_kernel_sum);
-    
-    //             // save the results into the output frame
-    //             let magnitude = (x_kernel_sum.abs() + y_kernel_sum.abs()).min(255) as u8;
-    
-    //             // Debug: Print the magnitude before clamping to 255
-    //             println!("Magnitude (before clamping to 255): {}", magnitude);
-    
-    //             *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
-    
-    //             // Debug: Confirm that the magnitude has been stored
-    //             println!("Stored magnitude at (x: {}, y: {})", x, y);
-    //         }
-
-    //         println!(
-    //             "end of pixel ({},{})\n\n", x, y
-    //         );
-    //     }
-    //     println!(
-    //         "end of row ({})\n\n", y
-    //     );
-    // }
-    
-
-
-
-
-    // let gy_data_old: [[i8; 8]; 3] = [
-    //     [1, 2, 1, 0, 0, 0, 0, 0],   // First row of gy kernel
-    //     [0, 0, 0, 0, 0, 0, 0, 0],   //  row of gy kernel (all zeros)
-    //     [-1, -2, -1, 0, 0, 0, 0, 0],// Second row of gy kernel
-    // ];
-
-    // // compute sobel for each inner pixel
-    // for y in 1..(frame.rows() - 1) {
-    //     for x in 1..(frame.cols() - 1) {
-
-    //     // Initialize accumulators for the x and y gradients
-    //     let (sum_x, sum_y) = 
-    //         (0..3).flat_map(|ky| { // Iterate over the y kernel indices
-    //             (0..3).map(move |kx| { // Iterate over the x kernel indices
-    //                 // get the greyscale value for that kernel pixel
-    //                 let pixel: u8 = *frame.at_2d::<u8>(y + ky - 1, x + kx - 1).unwrap();
-                    
-    //                 // Calculate contributions to the x and y gradients using the Sobel kernels
-    //                 let gradient_x = pixel as i16 * gx_data[ky as usize][kx as usize] as i16; // Contribution for Gx
-    //                 let gradient_y = pixel as i16 * gy_data_old[ky as usize][kx as usize] as i16; // Contribution for Gy
-                    
-    //                 // Return the contributions as a tuple
-    //                 (gradient_x, gradient_y)
-    //             })
-    //         })
-    //         // Accumulate the gradient contributions into sum_x and sum_y
-    //         .fold((0i16, 0i16), |(acc_x, acc_y), (dx, dy)| {
-    //             (acc_x + dx, acc_y + dy)
-    //         });
-
-
-    //         let magnitude = (sum_x.abs() + sum_y.abs()).min(255) as u8;
-
-    //         *(output.at_2d_mut::<u8>(y, x)?) = magnitude;
-
-    //     }
-    // }
-
-
-
     Ok(output)
 }
 
 
-use opencv::{core, prelude::*};
-use serde::{Serialize, Deserialize};
-use bincode;
 
-#[derive(Serialize, Deserialize)]
-struct MatMessage {
-    rows: i32,
-    cols: i32,
-    mat_type: i32, // e.g., CV_8UC3
-    data: Vec<u8>,
-}
 
-pub fn mat_to_message(mat: &core::Mat) -> Vec<u8> {
+
+pub fn mat_to_message(mat: &core::Mat, number: u32, send_time: i32) -> MatMessage {
     let rows = mat.rows();
     let cols = mat.cols();
     let mat_type = mat.typ();
@@ -402,18 +267,20 @@ pub fn mat_to_message(mat: &core::Mat) -> Vec<u8> {
         rows,
         cols,
         mat_type,
+        number,
+        send_time,
         data,
     };
 
-    dbg!(&mat_message.data[0..8]);
-    bincode::serialize(&mat_message).expect("Serialization failed")
+    // dbg!(&mat_message.data[0..8]);
+
+    mat_message
 
 }
 
-pub fn message_to_mat(bytes: Vec<u8>) -> core::Mat {
+pub fn message_to_mat(msg: MatMessage) -> core::Mat {
 
-    let msg: MatMessage = bincode::deserialize(&bytes).expect("Deserialization failed");
-    dbg!(&msg.rows, &msg.cols, &msg.mat_type);
+    dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
     dbg!(&msg.data[0..8]);
 
     // let mat = unsafe {opencv::core::Mat::new_rows_cols_with_bytes::<T>(
