@@ -16,6 +16,10 @@ use std::arch::aarch64::*;
 const NUM_THREADS: usize = 4;
 
 pub fn do_frame(frame: &Mat) -> Result<Mat> {
+
+    dbg!("do_frame start");
+    // dbg!(frame.data_bytes()?);
+
     // Calculate the height for each smaller matrix
     let split_height = frame.rows() / NUM_THREADS as i32;
 
@@ -115,20 +119,25 @@ pub fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
         .map(|mat| to442_sobel_simd(&to442_grayscale_simd(mat).unwrap()).unwrap())
         .collect();
 
-    // // Sequential implementation (still splits the frame)
-    // let results = vec![my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[0]).unwrap()).unwrap(),
-    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[1]).unwrap()).unwrap(),
-    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[2]).unwrap()).unwrap(),
-    // my_arm_neon::to442_sobel_simd(&my_arm_neon::to442_grayscale_simd(&mats[3]).unwrap()).unwrap()];
+    // Sequential implementation (still splits the frame)
+    // let results = vec![to442_sobel_simd(&to442_grayscale_simd(&mats[0]).unwrap()).unwrap(),
+    // to442_sobel_simd(&to442_grayscale_simd(&mats[1]).unwrap()).unwrap(),
+    // to442_sobel_simd(&to442_grayscale_simd(&mats[2]).unwrap()).unwrap(),
+    // to442_sobel_simd(&to442_grayscale_simd(&mats[3]).unwrap()).unwrap()];
 
     Ok(results)
 }
 
 pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
+    dbg!("starting to442_greyscale_simd");
+
+    dbg!(frame.rows(), frame.cols());
     // Convert the frame reference to a mutable slice of `u8`
     let bgr_data: &[u8] = unsafe {
         std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize)
     };
+    let bgr_data = frame.data_bytes()?;
+    dbg!(bgr_data[0]);
     assert!(
         bgr_data.len() % 12 == 0,
         "Input data length must be a multiple of 12"
@@ -145,7 +154,10 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
     };
 
     // Process each chunk of 12 bytes (4 pixels * 3 channels)
+    dbg!("midway to442_greyscale_simd");
+
     for (index, chunk) in bgr_data.chunks_exact(12).enumerate() {
+        // dbg!(index, chunk[0]);
         // Load the BGR bytes into separate arrays for NEON operations
         let b: [f32; 4] = [
             chunk[0].into(),
@@ -190,10 +202,13 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
         }
     }
 
+    dbg!("outputting greyscale simd");
+
     Ok(output)
 }
 
 pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
+    dbg!("starting to442_sobel_simd");
     let input = unsafe {
         std::slice::from_raw_parts(
             frame.data() as *mut u8,

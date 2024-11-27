@@ -36,12 +36,16 @@ fn main() {
 
     loop {
         // Receive task
+        dbg!("Message reception:");
 
         let message = task_receiver.recv_msg(0).unwrap();
         let msg: mat_packet::MatMessage = bincode::deserialize(&message).expect("Deserialization failed");
 
+        dbg!("next are same?");
+        dbg!(msg.data[0]);
         let frame_num = msg.number;
-        let mut frame = mat_packet::message_to_mat(msg).unwrap();
+        let frame = mat_packet::message_to_mat(&msg).unwrap();
+        dbg!(frame.data_bytes().unwrap()[0]);
 
         // println!("Processing Packet ID {}: {}", packet_id, packet_data);
 
@@ -52,7 +56,7 @@ fn main() {
         let mat_message = mat_packet::mat_to_message(&sobel_frame, frame_num, 0).unwrap();
         let serialized: Vec<u8> = bincode::serialize(&mat_message).expect("Serialization failed");
 
-        let serialized = message; //just echo back the og frame
+        // let serialized = message; //just echo back the og frame
         result_sender
             .send(serialized, 0)
             .expect("Failed to send result");

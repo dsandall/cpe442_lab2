@@ -2,6 +2,7 @@ use bincode;
 use opencv::{core, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
+use opencv::boxed_ref::BoxedRef;
 
 pub const TASK_PORT: &str = "5555"; // For sending tasks
 pub const RESULT_PORT: &str = "5556"; // For receiving results
@@ -61,7 +62,7 @@ pub fn mat_to_message(mat: &core::Mat, number: u64, send_time: i32) -> Result<Ma
     Ok(mat_message)
 }
 
-pub fn message_to_mat(msg: MatMessage) -> Result<core::Mat, opencv::Error> {
+pub fn message_to_mat(msg: &MatMessage) -> Result<core::Mat, opencv::Error> {
     dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
     dbg!(&msg.data[0..8]);
 
@@ -70,6 +71,7 @@ pub fn message_to_mat(msg: MatMessage) -> Result<core::Mat, opencv::Error> {
     //     msg.cols,
     //     &msg.data
     // )}
+
     unsafe {
         opencv::core::Mat::new_rows_cols_with_data_unsafe_def(
             msg.rows,

@@ -120,7 +120,7 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
                 let Reverse((_, msg)) = frame_buffer.pop().unwrap();
 
                 // Convert to a frame and display
-                let combined_frame = mat_packet::message_to_mat(msg).unwrap();
+                let combined_frame = mat_packet::message_to_mat(&msg).unwrap();
                 frame_count += 1;
                 total_sobel_time += Duration::new(1, 0);
 
