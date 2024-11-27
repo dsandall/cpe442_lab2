@@ -1,8 +1,12 @@
-use std::env;
-use rayon::prelude::*;
 use opencv::{
-    boxed_ref::BoxedRef, core::{Mat, Rect, CV_8UC1}, highgui::{self, WINDOW_AUTOSIZE}, prelude::*, videoio, Result
+    boxed_ref::BoxedRef,
+    core::{Mat, Rect, CV_8UC1},
+    highgui::{self, WINDOW_AUTOSIZE},
+    prelude::*,
+    videoio, Result,
 };
+use rayon::prelude::*;
+use std::env;
 use std::time::Instant;
 
 const NUM_THREADS: usize = 4;
@@ -38,7 +42,6 @@ fn main() -> Result<()> {
             break;
         }
 
-
         // Start timing for Sobel filter
         let start_sobel = Instant::now();
 
@@ -50,7 +53,6 @@ fn main() -> Result<()> {
         total_sobel_time += sobel_duration;
         frame_count += 1;
 
-        
         // (Optional) Save or display the combined frame
         // opencv::imgcodecs::imwrite("./YAHOO.jpg", &combined_frame, &opencv::core::Vector::from_slice(&[0]))?;
 
@@ -84,32 +86,77 @@ fn do_frame(frame: &Mat) -> Result<Mat> {
 
     // Create the smaller matrices with the specified overlaps
     let mat1 = Mat::roi(frame, Rect::new(0, 0, frame.cols(), split_height + 1))?;
-    let mat2 = Mat::roi(frame, Rect::new(0, split_height - 1, frame.cols(), split_height + 2))?;
-    let mat3 = Mat::roi(frame, Rect::new(0, split_height * 2 - 1, frame.cols(), split_height + 2))?;
-    let mat4 = Mat::roi(frame, Rect::new(0, split_height * 3 - 1, frame.cols(), split_height + 1))?;
+    let mat2 = Mat::roi(
+        frame,
+        Rect::new(0, split_height - 1, frame.cols(), split_height + 2),
+    )?;
+    let mat3 = Mat::roi(
+        frame,
+        Rect::new(0, split_height * 2 - 1, frame.cols(), split_height + 2),
+    )?;
+    let mat4 = Mat::roi(
+        frame,
+        Rect::new(0, split_height * 3 - 1, frame.cols(), split_height + 1),
+    )?;
 
-    //move these to parallel 
+    //move these to parallel
     let mats = vec![mat1, mat2, mat3, mat4];
     let sobel_results = do_sobel_parallel(&mats)?;
     //end parallel
 
     // Trim the results
-    let mat1_trimmed = Mat::roi(&sobel_results[0], Rect::new(1, 1, sobel_results[0].cols() - 2, sobel_results[0].rows() - 2))?;
-    let mat2_trimmed = Mat::roi(&sobel_results[1], Rect::new(1, 1, sobel_results[1].cols() - 2, sobel_results[1].rows() - 2))?;
-    let mat3_trimmed = Mat::roi(&sobel_results[2], Rect::new(1, 1, sobel_results[2].cols() - 2, sobel_results[2].rows() - 2))?;
-    let mat4_trimmed = Mat::roi(&sobel_results[3], Rect::new(1, 1, sobel_results[3].cols() - 2, sobel_results[3].rows() - 1))?;
+    let mat1_trimmed = Mat::roi(
+        &sobel_results[0],
+        Rect::new(
+            1,
+            1,
+            sobel_results[0].cols() - 2,
+            sobel_results[0].rows() - 2,
+        ),
+    )?;
+    let mat2_trimmed = Mat::roi(
+        &sobel_results[1],
+        Rect::new(
+            1,
+            1,
+            sobel_results[1].cols() - 2,
+            sobel_results[1].rows() - 2,
+        ),
+    )?;
+    let mat3_trimmed = Mat::roi(
+        &sobel_results[2],
+        Rect::new(
+            1,
+            1,
+            sobel_results[2].cols() - 2,
+            sobel_results[2].rows() - 2,
+        ),
+    )?;
+    let mat4_trimmed = Mat::roi(
+        &sobel_results[3],
+        Rect::new(
+            1,
+            1,
+            sobel_results[3].cols() - 2,
+            sobel_results[3].rows() - 1,
+        ),
+    )?;
 
     // Create a new Mat for the combined result
-    let combined_height = mat1_trimmed.rows() + mat2_trimmed.rows() + mat3_trimmed.rows() + mat4_trimmed.rows(); // Total height
-    let mut combined_frame = unsafe{Mat::new_rows_cols(combined_height, mat1_trimmed.cols(), CV_8UC1)}?; // Create an empty matrix of the appropriate size
+    let combined_height =
+        mat1_trimmed.rows() + mat2_trimmed.rows() + mat3_trimmed.rows() + mat4_trimmed.rows(); // Total height
+    let mut combined_frame =
+        unsafe { Mat::new_rows_cols(combined_height, mat1_trimmed.cols(), CV_8UC1) }?; // Create an empty matrix of the appropriate size
 
     // Copy the data from each matrix into the combined frame
     let mut current_row = 0;
 
     for mat in &[mat1_trimmed, mat2_trimmed, mat3_trimmed, mat4_trimmed] {
-        
         // Create a ROI for the current position in the combined frame
-        let mut roi = Mat::roi_mut(&mut combined_frame, Rect::new(0, current_row, mat.cols(), mat.rows()))?;
+        let mut roi = Mat::roi_mut(
+            &mut combined_frame,
+            Rect::new(0, current_row, mat.cols(), mat.rows()),
+        )?;
 
         // Copy the data
         mat.copy_to(&mut roi)?;
@@ -120,17 +167,15 @@ fn do_frame(frame: &Mat) -> Result<Mat> {
     Ok(combined_frame)
 }
 
-
 // Process Sobel in parallel
 fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
-    let results: Vec<Mat> = mats.par_iter().map(|mat| {
-        to442_sobel( 
-            &to442_grayscale(mat).unwrap()
-        ).unwrap()
-    }).collect();
+    let results: Vec<Mat> = mats
+        .par_iter()
+        .map(|mat| to442_sobel(&to442_grayscale(mat).unwrap()).unwrap())
+        .collect();
 
     // // Sequential implementation (still splits the frame)
-    // let results = vec![to442_sobel(&to442_grayscale(&mats[0]).unwrap()).unwrap(), 
+    // let results = vec![to442_sobel(&to442_grayscale(&mats[0]).unwrap()).unwrap(),
     // to442_sobel(&to442_grayscale(&mats[1]).unwrap()).unwrap(),
     // to442_sobel(&to442_grayscale(&mats[2]).unwrap()).unwrap(),
     // to442_sobel(&to442_grayscale(&mats[3]).unwrap()).unwrap()];
@@ -138,13 +183,14 @@ fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
     Ok(results)
 }
 
-
 fn to442_grayscale(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
-
-    let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
+    let mut output: Mat =
+        unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
 
     // Convert the frame reference to a mutable slice of `u8`
-    let data_slice: &[u8] = unsafe { std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize) };
+    let data_slice: &[u8] = unsafe {
+        std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize)
+    };
 
     // Use chunks_exact(3) to process the image data in groups of 3 (BGR channels)
     let mut i = 0;
@@ -169,10 +215,9 @@ fn to442_grayscale(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat
     Ok(output)
 }
 
-
 fn to442_sobel(frame: &Mat) -> Result<Mat> {
-
-    let mut output: Mat = unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
+    let mut output: Mat =
+        unsafe { opencv::core::Mat::new_rows_cols(frame.rows(), frame.cols(), CV_8UC1)? };
 
     let gx: [[i32; 3]; 3] = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
     let gy: [[i32; 3]; 3] = [[1, 2, 1], [0, 0, 0], [-1, -2, -1]];
@@ -182,7 +227,8 @@ fn to442_sobel(frame: &Mat) -> Result<Mat> {
             let (sum_x, sum_y) = (0..3)
                 .flat_map(|ky| {
                     (0..3).map(move |kx| {
-                        let pixel: i32 = (*frame.at_2d::<u8>(y + ky - 1, x + kx - 1).unwrap()).into();
+                        let pixel: i32 =
+                            (*frame.at_2d::<u8>(y + ky - 1, x + kx - 1).unwrap()).into();
                         (
                             pixel * gx[ky as usize][kx as usize],
                             pixel * gy[ky as usize][kx as usize],
@@ -191,7 +237,7 @@ fn to442_sobel(frame: &Mat) -> Result<Mat> {
                 })
                 .fold((0i32, 0i32), |(acc_x, acc_y), (dx, dy)| {
                     (acc_x + dx, acc_y + dy)
-                }); 
+                });
 
             let magnitude = (sum_x.abs() + sum_y.abs()).min(255) as u8;
 

@@ -1,8 +1,7 @@
 ///////////////////////////////////
-/// CPE442 with Andrew Danowitz: Lab 3 Sobel Filter 
+/// CPE442 with Andrew Danowitz: Lab 3 Sobel Filter
 /// Dylan Sandall
 ///////////////////////////////////
-
 use std::env;
 
 use opencv::{
@@ -11,7 +10,6 @@ use opencv::{
     prelude::*,
     videoio, Result,
 };
-
 
 use std::time::Instant;
 

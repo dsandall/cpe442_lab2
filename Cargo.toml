@@ -12,13 +12,8 @@ tokio = { version = "1.41.0", features = ["full"] }
 zmq = "0.10"
 
 [lib]
-name = "my_arm_neon"
-path = "src/my_arm_neon.rs"
-
-## Define binaries
-#[[bin]]
-#name = "lab5"
-#path = "src/lab5_simd.rs"
+name = "lib"
+path = "src/lib.rs"
 
 
 # Profiles
