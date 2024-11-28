@@ -3,6 +3,10 @@ name = "cpe442_lab2"
 version = "0.1.1"
 edition = "2021"
 
+[features]
+default = []
+debug = []
+
 [dependencies]
 bincode = "1.3.3"
 opencv = { version = "0.93.4", default-features = false, features = ["highgui", "imgcodecs", "videoio"] }

@@ -1,10 +1,11 @@
-use opencv::{boxed_ref::BoxedRef, core::Rect, highgui, prelude::*};
+use opencv::{boxed_ref::BoxedRef, core::Rect, prelude::*};
 use opencv::{
     core::{Mat, MatTrait, MatTraitConst, CV_8UC1},
     Result,
 };
 use rayon::prelude::*;
 
+#[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
 const NUM_THREADS: usize = 4;
@@ -125,9 +126,10 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
 
     dbg!(frame.rows(), frame.cols());
     // Convert the frame reference to a mutable slice of `u8`
-    let bgr_data: &[u8] = unsafe {
-        std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize)
-    };
+    // let bgr_data: &[u8] = unsafe {
+    //     std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize)
+    // //unsurprisingly, this caused a ton of errors.
+    // };
     let bgr_data = frame.data_bytes()?;
     dbg!(bgr_data[0]);
     assert!(
