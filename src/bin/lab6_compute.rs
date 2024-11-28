@@ -1,9 +1,6 @@
 use lib::mat_packet;
 use lib::my_arm_neon;
-use opencv::{
-    core::Mat,
-    prelude::*,
-};
+use opencv::{core::Mat, prelude::*};
 use zmq::Context;
 
 fn main() {
