@@ -1,14 +1,9 @@
 use lib::mat_packet;
 use lib::my_arm_neon;
 use opencv::{
-    boxed_ref::BoxedRef,
-    core::{Mat, Rect, CV_8UC1, CV_8UC3},
-    highgui::{self, WINDOW_AUTOSIZE},
+    core::Mat,
     prelude::*,
-    videoio, Result,
 };
-use std::thread;
-use std::time::Duration;
 use zmq::Context;
 
 fn main() {

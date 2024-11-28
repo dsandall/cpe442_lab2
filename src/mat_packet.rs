@@ -47,8 +47,8 @@ pub fn from_mat(mat: &core::Mat, number: u64, send_time: i32) -> Result<MatMessa
         rows: mat.rows(),
         cols: mat.cols(),
         mat_type: mat.typ(),
-        number: number,
-        send_time: send_time,
+        number,
+        send_time,
         data: mat.data_bytes()?.to_vec(),
     })
 }

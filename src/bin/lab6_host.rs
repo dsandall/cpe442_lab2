@@ -1,12 +1,10 @@
 use opencv::{
-    boxed_ref::BoxedRef,
-    core::{Mat, Rect, CV_8UC1},
+    core::Mat,
     highgui::{self, WINDOW_AUTOSIZE},
     prelude::*,
     videoio, Result,
 };
 use std::sync::Arc;
-use std::time::Instant;
 // use std::prelude::*;
 use std::{env, time::Duration};
 
@@ -14,9 +12,6 @@ use lib::mat_packet;
 
 use tokio::sync::Mutex;
 
-use std::collections::HashMap;
-use tokio::sync::mpsc;
-use tokio::task;
 use zmq::{Context, Socket};
 
 #[tokio::main]
@@ -29,7 +24,7 @@ async fn main() -> Result<()> {
     let filename = &args[1];
 
     // Open the video file
-    let mut video = videoio::VideoCapture::from_file(filename, videoio::CAP_ANY)?;
+    let video = videoio::VideoCapture::from_file(filename, videoio::CAP_ANY)?;
     if !video.is_opened()? {
         panic!("Error: Couldn't open video file.");
     }
