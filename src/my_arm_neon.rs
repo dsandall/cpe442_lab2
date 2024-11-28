@@ -11,7 +11,6 @@ use std::arch::aarch64::*;
 const NUM_THREADS: usize = 4;
 
 pub fn do_frame(frame: &Mat) -> Result<Mat> {
-    dbg!("do_frame start");
 
     // Calculate the height for each smaller matrix
     let split_height = frame.rows() / NUM_THREADS as i32;
@@ -31,14 +30,12 @@ pub fn do_frame(frame: &Mat) -> Result<Mat> {
         Rect::new(0, split_height * 3 - 1, frame.cols(), split_height + 1),
     )?;
 
-    dbg!("process frame begin earlier");
 
     //move these to parallel
     let mats = vec![mat1, mat2, mat3, mat4];
     let sobel_results = do_sobel_parallel(&mats)?;
     //end parallel
 
-    dbg!("process frame begin");
 
     // Trim the results
     let mat1_trimmed = Mat::roi(
@@ -100,7 +97,6 @@ pub fn do_frame(frame: &Mat) -> Result<Mat> {
         current_row += mat.rows(); // Move to the next position
     }
 
-    dbg!("process frame complete");
 
     Ok(combined_frame)
 }
@@ -122,16 +118,13 @@ pub fn do_sobel_parallel(mats: &[BoxedRef<'_, Mat>]) -> Result<Vec<Mat>> {
 }
 
 pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> Result<Mat> {
-    dbg!("starting to442_greyscale_simd");
 
-    dbg!(frame.rows(), frame.cols());
     // Convert the frame reference to a mutable slice of `u8`
     // let bgr_data: &[u8] = unsafe {
     //     std::slice::from_raw_parts(frame.data(), (frame.rows() * frame.cols() * 3) as usize)
-    // //unsurprisingly, this caused a ton of errors.
+    // // unsurprisingly, this caused a ton of errors.
     // };
     let bgr_data = frame.data_bytes()?;
-    dbg!(bgr_data[0]);
     assert!(
         bgr_data.len() % 12 == 0,
         "Input data length must be a multiple of 12"
@@ -148,7 +141,6 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
     };
 
     // Process each chunk of 12 bytes (4 pixels * 3 channels)
-    dbg!("midway to442_greyscale_simd");
 
     for (index, chunk) in bgr_data.chunks_exact(12).enumerate() {
         // dbg!(index, chunk[0]);
@@ -196,13 +188,11 @@ pub fn to442_grayscale_simd(frame: &opencv::mod_prelude::BoxedRef<'_, Mat>) -> R
         }
     }
 
-    dbg!("outputting greyscale simd");
 
     Ok(output)
 }
 
 pub fn to442_sobel_simd(frame: &Mat) -> Result<Mat> {
-    dbg!("starting to442_sobel_simd");
     let input = unsafe {
         std::slice::from_raw_parts(
             frame.data() as *mut u8,

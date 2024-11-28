@@ -4,15 +4,23 @@ use opencv::{
     prelude::*,
     videoio, Result,
 };
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 // use std::prelude::*;
-use std::{env, time::Duration};
+use std::env;
 
 use lib::mat_packet;
 
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::yield_now};
+
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 use zmq::{Context, Socket};
+
+use std::sync::atomic::Ordering;
+
+
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,7 +38,7 @@ async fn main() -> Result<()> {
     }
 
     // open zeromq ports for communication with clients
-    let (tx, rx, context) = init_zmq()?;
+    let (tx, rx, _context) = init_zmq()?;
 
     // screw around with Arc<Mutex<>> patterns because rust is rust
     let tx_safe = Arc::new(Mutex::new(tx));
@@ -38,16 +46,22 @@ async fn main() -> Result<()> {
     let rx_safe = Arc::new(Mutex::new(rx));
     let rx_clone: Arc<Mutex<Socket>> = Arc::clone(&rx_safe);
 
+    let shared_counter = Arc::new(AtomicU64::new(0));
+    let counter1 = Arc::clone(&shared_counter);
+    let counter2 = Arc::clone(&shared_counter);
+
     // spawn thread for transmission
-    tokio::spawn(async move { send_frames(tx_clone, video).await });
+    tokio::spawn(async move { send_frames(tx_clone, video, counter1).await });
 
     // spawn thread for reception
-    receive_frames(rx_clone).await;
+    receive_frames(rx_clone, counter2).await?;
+
+
 
     Ok(())
 }
 
-async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapture) -> Result<()> {
+async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapture, rx_count: Arc<AtomicU64>) -> Result<()> {
     let mut frame_count = 0;
 
     let tx_guard = tx_mutex.lock().await;
@@ -69,27 +83,35 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
 
         let mat_message = mat_packet::from_mat(&frame, frame_count, 0).unwrap();
         let serialized: Vec<u8> = bincode::serialize(&mat_message).expect("Serialization failed");
+        let size = serialized.len();
         (*tx_guard)
-            .send(serialized, 0)
-            .expect("Failed to send task");
-
+        .send(serialized, 0)
+        .expect("Failed to send task");
+        
+        dbg!("frame sent", frame_count );
+        dbg!("with message size: ", size);
         frame_count += 1;
+        
+
+        while frame_count > rx_count.load(Ordering::SeqCst) + 2 {
+            yield_now();
+        }
+
+
     }
 
     Ok(())
 }
 
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 
-async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
-    let mut frame_count = 0;
+
+async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> Result<()> {
     let mut total_sobel_time = std::time::Duration::new(0, 0);
+    let start = std::time::Instant::now();
 
     // Create a window to display frames
     highgui::named_window("Video Frame", WINDOW_AUTOSIZE)?;
 
-    let mut next_frame_number = 0;
     let mut frame_buffer: BinaryHeap<Reverse<(u64, mat_packet::MatMessage)>> = BinaryHeap::new();
 
     let rx_guard = rx_mutex.lock().await;
@@ -98,43 +120,51 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>) -> Result<()> {
         println!("waiting for message...");
         let bytes: zmq::Message = (*rx_guard).recv_msg(0).unwrap(); //blocking
         println!("msg recvd");
+        let size = bytes.len();
 
         let msg: mat_packet::MatMessage =
             bincode::deserialize(&bytes).expect("Deserialization failed");
         drop(bytes);
 
-        dbg!(msg.number);
+        let rx_num = msg.number;
+
+        dbg!("recieved:", rx_num);
+        dbg!("with message size: ", size);
 
         // Store the message in the buffer
-        if msg.number < next_frame_number {
+        if rx_num < count.load(Ordering::SeqCst) {
             break;
         } else {
-            frame_buffer.push(Reverse((msg.number, msg)));
+            frame_buffer.push(Reverse((rx_num, msg)));
+        }
+
+
+        // Every 50 frames, calculate and print averages
+        if rx_num % 50 == 0 {
+            total_sobel_time = std::time::Instant::now().duration_since(start);
+            let avg_sobel_time = total_sobel_time / ((rx_num.max(1)) as u32);
+            println!(
+                "Averages after {} frames: Sobel: {:?}",
+                rx_num, avg_sobel_time
+            );
+            dbg!(       "Averages after {} frames: Sobel: {:?}",
+            rx_num, avg_sobel_time);
         }
 
         // Process messages in order
-        while let Some(Reverse((number, message))) = frame_buffer.peek() {
-            if *number == next_frame_number {
+        while let Some(Reverse((number, _message))) = frame_buffer.peek() {
+            if *number == count.load(Ordering::SeqCst) {
                 // Pop the message from the buffer
                 let Reverse((_, msg)) = frame_buffer.pop().unwrap();
 
                 // Convert to a frame and display
                 let combined_frame = Mat::try_from(&msg).unwrap();
-                frame_count += 1;
-                total_sobel_time += Duration::new(1, 0);
+                count.fetch_add(1,Ordering::SeqCst); // += 1
+                // total_sobel_time += Duration::new(1, 0);
 
                 highgui::imshow("Video Frame", &combined_frame).unwrap();
 
-                next_frame_number += 1;
 
-                // Every 50 frames, calculate and print averages
-                if frame_count % 50 == 0 {
-                    let avg_sobel_time = total_sobel_time / frame_count;
-                    println!(
-                        "Averages after {} frames: Sobel: {:?}",
-                        frame_count, avg_sobel_time
-                    );
-                }
             } else {
                 // Break if the next expected frame is not at the front of the buffer
                 break;
@@ -161,6 +191,8 @@ fn init_zmq() -> Result<(Socket, Socket, Context)> {
         .expect("Failed to create task sender");
     tx.bind(&format!("tcp://*:{}", mat_packet::TASK_PORT))
         .expect("Failed to bind task sender");
+    tx.set_sndhwm(1)
+        .expect("failed to set high water mark");
 
     // Result receiver (PULL)
     let rx: zmq::Socket = context
@@ -168,6 +200,8 @@ fn init_zmq() -> Result<(Socket, Socket, Context)> {
         .expect("Failed to create result receiver");
     rx.bind(&format!("tcp://*:{}", mat_packet::RESULT_PORT))
         .expect("Failed to bind result receiver");
+    rx.set_rcvhwm(1)  // Set receive high water mark (max messages to buffer)
+        .expect("Failed to set receive HWM for result receiver");
 
     println!("Host is ready to distribute tasks and receive results.");
 
