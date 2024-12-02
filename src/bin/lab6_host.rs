@@ -61,6 +61,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+
+
 async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapture, rx_count: Arc<AtomicU64>) -> Result<()> {
     let mut frame_count = 0;
 
@@ -71,9 +73,6 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
         let mut frame = Mat::default();
         if !video.read(&mut frame)? {
             println!("Video processing finished.");
-            break;
-        } else if frame.empty() {
-            println!("Empty frame detected. Video might have ended.");
             break;
         }
 
@@ -87,14 +86,14 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
         (*tx_guard)
         .send(serialized, 0)
         .expect("Failed to send task");
-        
+    
         dbg!("frame sent", frame_count );
         dbg!("with message size: ", size);
         frame_count += 1;
         
 
-        while frame_count > rx_count.load(Ordering::SeqCst) + 2 {
-            yield_now();
+        while frame_count > rx_count.load(Ordering::SeqCst) + 8 {
+            yield_now().await;
         }
 
 
@@ -106,8 +105,8 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
 
 
 async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> Result<()> {
-    let mut total_sobel_time = std::time::Duration::new(0, 0);
     let start = std::time::Instant::now();
+    let mut last : std::time::Instant = start;
 
     // Create a window to display frames
     highgui::named_window("Video Frame", WINDOW_AUTOSIZE)?;
@@ -115,6 +114,7 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> 
     let mut frame_buffer: BinaryHeap<Reverse<(u64, mat_packet::MatMessage)>> = BinaryHeap::new();
 
     let rx_guard = rx_mutex.lock().await;
+
 
     loop {
         println!("waiting for message...");
@@ -128,11 +128,11 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> 
 
         let rx_num = msg.number;
 
-        dbg!("recieved:", rx_num);
-        dbg!("with message size: ", size);
+        dbg!("recieved # with message size:", rx_num,  size);
 
         // Store the message in the buffer
         if rx_num < count.load(Ordering::SeqCst) {
+            // but only if you need it (if you should somehow recieve a frame you already recieved)
             break;
         } else {
             frame_buffer.push(Reverse((rx_num, msg)));
@@ -141,14 +141,19 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> 
 
         // Every 50 frames, calculate and print averages
         if rx_num % 50 == 0 {
-            total_sobel_time = std::time::Instant::now().duration_since(start);
-            let avg_sobel_time = total_sobel_time / ((rx_num.max(1)) as u32);
+            let now = std::time::Instant::now();
+            let total_sobel_time= now.duration_since(start);
+            let last_50_time = now.duration_since(last);
+            
             println!(
-                "Averages after {} frames: Sobel: {:?}",
-                rx_num, avg_sobel_time
+                "Averages after {} frames: avg time to sobel: {:?}/only last 50: {:?}",
+                rx_num, 
+                total_sobel_time / ((rx_num.max(1)) as u32),
+                last_50_time/50
             );
-            dbg!(       "Averages after {} frames: Sobel: {:?}",
-            rx_num, avg_sobel_time);
+
+            last = now;
+
         }
 
         // Process messages in order
