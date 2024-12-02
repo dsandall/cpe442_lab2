@@ -22,10 +22,11 @@ path = "src/lib.rs"
 # Profiles
 [profile.dev]
 opt-level = 0 # No optimization for development
-debug = true   # Include debug information
+debug = false   # Include debug information
 
 [profile.release]
 opt-level = 3 # Max optimization for release
+debug = false   
 
 
 ## You can also set options for specific binaries

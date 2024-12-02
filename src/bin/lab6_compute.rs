@@ -37,22 +37,22 @@ fn main() {
 
     loop {
         // Receive task
-        dbg!("Message reception:");
+        //dbg!("Message reception:");
 
         let message = tx.recv_msg(0).unwrap();
         let msg: mat_packet::MatMessage =
             bincode::deserialize(&message).expect("Deserialization failed");
 
-        dbg!(format!("{},{}", msg.data[0], msg.number));
+        //dbg!(format!("{},{}", msg.data[0], msg.number));
         let frame_num = msg.number;
         let frame = Mat::try_from(&msg).unwrap();
 
         // println!("Processing Packet ID {}: {}", packet_id, packet_data);
 
-        dbg!("frame processing begin");
+        //dbg!("frame processing begin");
         // sleep(Duration::new(5,0));
         let sobel_frame = my_arm_neon::do_frame(&frame).unwrap();
-        dbg!("frame complete");
+        //dbg!("frame complete");
 
         let mat_message = mat_packet::from_mat(&sobel_frame, frame_num, 0).unwrap();
 

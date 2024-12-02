@@ -60,8 +60,8 @@ impl TryFrom<&MatMessage> for opencv::core::Mat {
         // Test Assertions:
         // Validate dimensions
         if msg.rows <= 0 || msg.cols <= 0 {
-            dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
-            dbg!(&msg.data[0..8]);
+            //dbg!(&msg.rows, &msg.cols, &msg.mat_type, &msg.number);
+            //dbg!(&msg.data[0..8]);
             return Err(opencv::Error::new(
                 opencv::core::StsOutOfRange,
                 "Invalid matrix dimensions",

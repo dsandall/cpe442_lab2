@@ -87,8 +87,8 @@ async fn send_frames(tx_mutex: Arc<Mutex<Socket>>, mut video: videoio::VideoCapt
         .send(serialized, 0)
         .expect("Failed to send task");
     
-        dbg!("frame sent", frame_count );
-        dbg!("with message size: ", size);
+        //dbg!("frame sent", frame_count );
+        //dbg!("with message size: ", size);
         frame_count += 1;
         
 
@@ -128,7 +128,7 @@ async fn receive_frames(rx_mutex: Arc<Mutex<Socket>>, count: Arc<AtomicU64>) -> 
 
         let rx_num = msg.number;
 
-        dbg!("recieved # with message size:", rx_num,  size);
+        //dbg!("recieved # with message size:", rx_num,  size);
 
         // Store the message in the buffer
         if rx_num < count.load(Ordering::SeqCst) {

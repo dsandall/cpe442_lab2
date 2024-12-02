@@ -33,6 +33,7 @@ fn main() -> Result<()> {
     let mut total_sobel_time = std::time::Duration::new(0, 0);
     let mut frame_count = 0;
 
+    let mut start_time = Instant::now();
     loop {
         // Read the next frame
         let mut frame = Mat::default();
@@ -72,9 +73,10 @@ fn main() -> Result<()> {
         // Every 50 frames, calculate and print averages
         if frame_count % 50 == 0 {
             let avg_sobel_time = total_sobel_time / frame_count;
+            let avg_frame_time = start_time.elapsed() / frame_count;
             println!(
-                "Averages after {} frames: Sobel: {:?}",
-                frame_count, avg_sobel_time
+                "Averages after {} frames: \nSobel time: {:?}\n frame time {:?}",
+                frame_count, avg_sobel_time, avg_frame_time,
             );
         }
     }
