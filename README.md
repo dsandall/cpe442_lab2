@@ -13,10 +13,8 @@ make sure to set the local IP of your host node, then compile (right now the hos
 just send those binaries to the rpi targets and run 1 host and X clients
 targets must install opencv library (i'd like to compile this statically... coming soon?)
 
-
-/////////////////////////////////////////////////////////
+---
 # Build from source
-/////////////////////////////////////////////////////////
 
 
 ## for building and running on RPI
